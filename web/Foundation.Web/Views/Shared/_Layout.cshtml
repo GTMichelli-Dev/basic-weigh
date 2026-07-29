@@ -70,8 +70,11 @@
                         </li>
                         @if (appSetup?.UseBinInventory == true)
                         {
+                        @* Toggled by the small script at the bottom of the page,
+                           not Bootstrap's Dropdown — the site ships bootstrap.js
+                           without Popper, which that component requires. *@
                         <li class="nav-item dropdown">
-                            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Reports</a>
+                            <a class="nav-link dropdown-toggle" href="#" id="reportsDropdown" role="button" aria-expanded="false">Reports</a>
                             <ul class="dropdown-menu">
                                 <li><a class="dropdown-item" asp-controller="Report" asp-action="Index">Standard Reports</a></li>
                                 <li><a class="dropdown-item" asp-controller="Report" asp-action="Bins">Bin Report</a></li>
@@ -260,6 +263,26 @@
     <script src="~/js/devextreme-license.js"></script>
 
     <script src="~/js/site.js" asp-append-version="true"></script>
+    <script>
+        // Reports nav dropdown. Hand-rolled because Bootstrap's Dropdown
+        // component needs Popper, which the site's bootstrap.js build lacks —
+        // navbar menus position fine with Bootstrap's CSS alone.
+        (function () {
+            var toggle = document.getElementById('reportsDropdown');
+            if (!toggle) return;
+            var menu = toggle.nextElementSibling;
+            toggle.addEventListener('click', function (e) {
+                e.preventDefault();
+                var open = menu.classList.toggle('show');
+                toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+            });
+            document.addEventListener('click', function (e) {
+                if (toggle.contains(e.target)) return;
+                menu.classList.remove('show');
+                toggle.setAttribute('aria-expanded', 'false');
+            });
+        })();
+    </script>
     @if (appSetup?.DemoMode == true)
     {
     <script>
