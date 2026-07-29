@@ -302,6 +302,20 @@ public class MasterDataController : Controller
         if (body.TryGetProperty("useAtKiosk", out var kiosk)) existing.UseAtKiosk = kiosk.GetBoolean();
         if (body.TryGetProperty("siteId", out var site))
             existing.SiteId = site.ValueKind == JsonValueKind.Number ? site.GetInt32() : null;
+        // Assigned commodity only changes while the bin is at zero (or to
+        // match what it already holds) — same rule as the Bin Report's Set
+        // Commodity action.
+        if (body.TryGetProperty("commodity", out var commodityProp))
+        {
+            var commodity = commodityProp.ValueKind == JsonValueKind.String ? commodityProp.GetString()?.Trim() : null;
+            if (string.IsNullOrEmpty(commodity)) commodity = null;
+            if (!string.Equals(commodity, existing.Commodity, StringComparison.OrdinalIgnoreCase))
+            {
+                if (BinInventory.ValidateAssignment(_db, existing.BinName, commodity) is { } err)
+                    return BadRequest(new { message = err });
+                existing.Commodity = commodity;
+            }
+        }
         _db.SaveChanges();
         return Json(existing);
     }
@@ -625,6 +639,10 @@ public class MasterDataController : Controller
         if (body.TryGetProperty("useAtKiosk", out var kiosk)) existing.UseAtKiosk = kiosk.GetBoolean();
         if (body.TryGetProperty("siteId", out var site))
             existing.SiteId = site.ValueKind == JsonValueKind.Number ? site.GetInt32() : null;
+        if (body.TryGetProperty("unitName", out var unitName))
+            existing.UnitName = unitName.ValueKind == JsonValueKind.String ? unitName.GetString() : null;
+        if (body.TryGetProperty("unitPounds", out var unitPounds))
+            existing.UnitPounds = unitPounds.ValueKind == JsonValueKind.Number ? unitPounds.GetDouble() : null;
         _db.SaveChanges();
         return Json(existing);
     }

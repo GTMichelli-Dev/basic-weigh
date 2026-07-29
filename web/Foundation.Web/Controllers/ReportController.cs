@@ -28,6 +28,17 @@ public class ReportController : Controller
         return View();
     }
 
+    // Reports → Bin Report (its own nav entry; only meaningful with
+    // Setup → Options → Use Bin Inventory on).
+    public IActionResult Bins()
+    {
+        var setup = _setupCache.Get();
+        if (!setup.UseBinInventory) return RedirectToAction("Index");
+        ViewBag.CompanyName = setup.Header1 ?? "Foundation";
+        ViewBag.BinCommodityLock = setup.BinCommodityLock;
+        return View();
+    }
+
     [HttpGet("api/reports/transactions")]
     public IActionResult GetTransactions(DateTime? startDate, DateTime? endDate)
     {
@@ -57,6 +68,8 @@ public class ReportController : Controller
             .ToDictionary(g => g.Key,
                 g => g.ToDictionary(v => v.CustomFieldId.ToString(), v => v.Value));
 
+        var units = CommodityUnits();
+        var defaultUnit = DefaultUnit();
         var results = rows
             .Select(t => new
             {
@@ -70,10 +83,15 @@ public class ReportController : Controller
                 t.Location,
                 t.Destination,
                 t.Bin,
+                t.TransferToBin,
                 t.InWeight,
                 t.OutWeight,
                 t.NetWeight,
                 NetTons = Math.Round(t.NetWeight / 2000.0, 2),
+                Unit = t.Commodity != null && units.TryGetValue(t.Commodity, out var u) ? u.Name : defaultUnit.Name,
+                NetUnits = t.Commodity != null && units.TryGetValue(t.Commodity, out var u2)
+                    ? Math.Round(t.NetWeight / u2.Pounds, 2)
+                    : Math.Round(t.NetWeight / defaultUnit.Pounds, 2),
                 t.Notes,
                 t.SentToQuickBooks,
                 HasInImage = System.IO.File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "images", "tickets", $"{t.Ticket}_in.jpg")),
@@ -430,58 +448,26 @@ public class ReportController : Controller
 
     // ===== BIN INVENTORY (Setup → Options → Use Bin Inventory) =====
     //
-    // On-hand per (bin, commodity) is computed from ticket history rather than
-    // a stored counter, so it can be reported as of any date:
-    //   - truck arrived heavy (InWeight > OutWeight)  → load INTO the bin
-    //   - truck left heavy   (OutWeight > InWeight)   → load OUT of the bin
-    //   - plus manual BinAdjustments (true-ups for shrinkage, starting balances)
+    // The per-(bin, commodity) math lives in Services/BinInventory so the
+    // Lock Bin to Commodity rule shares it with these report endpoints.
 
-    private sealed class BinInvRow
-    {
-        public int LoadsIn; public long LbsIn;
-        public int LoadsOut; public long LbsOut;
-        public long AdjustmentLbs;
-        public long OnHand => LbsIn - LbsOut + AdjustmentLbs;
-    }
+    /// <summary>Commodity name → reporting unit, for commodities that have one
+    /// configured (Edit Tables → Commodities).</summary>
+    private Dictionary<string, (string Name, double Pounds)> CommodityUnits() =>
+        _db.Commodities
+            .Where(c => c.UnitName != null && c.UnitName != "" && c.UnitPounds > 0)
+            .ToList()
+            .GroupBy(c => c.CommodityName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => (g.First().UnitName!, g.First().UnitPounds!.Value),
+                StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Accumulate completed non-void binned tickets and adjustments
-    /// into per-(bin, commodity) rows. cutoff = exclusive UTC upper bound, or
-    /// null for all history.</summary>
-    private Dictionary<(string Bin, string Commodity), BinInvRow> ComputeBinInventory(DateTime? cutoff)
-    {
-        var rows = new Dictionary<(string, string), BinInvRow>();
-
-        BinInvRow Row(string bin, string? commodity)
-        {
-            var key = (bin, commodity ?? "");
-            if (!rows.TryGetValue(key, out var r)) rows[key] = r = new BinInvRow();
-            return r;
-        }
-
-        var txns = _db.Transactions
-            .Where(t => !t.Void && t.DateOut != null && t.OutWeight != null
-                        && t.Bin != null && t.Bin != "")
-            .Where(t => cutoff == null || t.DateOut < cutoff)
-            .Select(t => new { t.Bin, t.Commodity, t.InWeight, t.OutWeight })
-            .ToList();
-
-        foreach (var t in txns)
-        {
-            var net = Math.Abs(t.InWeight - t.OutWeight!.Value);
-            if (net == 0) continue;
-            var r = Row(t.Bin!, t.Commodity);
-            if (t.InWeight > t.OutWeight.Value) { r.LoadsIn++; r.LbsIn += net; }
-            else { r.LoadsOut++; r.LbsOut += net; }
-        }
-
-        var adjustments = _db.BinAdjustments
-            .Where(a => cutoff == null || a.Date < cutoff)
-            .ToList();
-        foreach (var a in adjustments)
-            Row(a.Bin, a.Commodity).AdjustmentLbs += a.AmountLbs;
-
-        return rows;
-    }
+    /// <summary>Fallback unit for anything without a configured commodity unit
+    /// (Setup → Options → Default Reporting Unit): plain pounds, or kilograms
+    /// converted from the weighed pounds.</summary>
+    private (string Name, double Pounds) DefaultUnit() =>
+        string.Equals(_setupCache.Get().DefaultReportUnit, "kg", StringComparison.OrdinalIgnoreCase)
+            ? ("kg", 2.20462262)
+            : ("lbs", 1.0);
 
     [HttpGet("api/reports/bin-inventory")]
     public IActionResult GetBinInventory(DateTime? asOfDate)
@@ -491,29 +477,38 @@ public class ReportController : Controller
             ? AppTimeZone.ToUtc(asOfDate.Value.Date.AddDays(1))
             : null;
 
-        var rows = ComputeBinInventory(cutoff);
+        var rows = BinInventory.Compute(_db, cutoff);
+        var assigned = BinInventory.AssignedCommodities(_db);
 
         // Active bins with no movements still get a zero row so the operator
-        // sees every bin on the report.
+        // sees every bin on the report — under the assigned commodity when
+        // one is set, so a freshly reserved bin shows what it's for.
         foreach (var bin in _db.Bins.Where(b => b.Active).Select(b => b.BinName).ToList())
         {
             if (!rows.Keys.Any(k => k.Bin == bin))
-                rows[(bin, "")] = new BinInvRow();
+                rows[(bin, assigned.GetValueOrDefault(bin, ""))] = new BinInventory.Row();
         }
 
+        var units = CommodityUnits();
+        var defaultUnit = DefaultUnit();
         var results = rows
             .OrderBy(kv => kv.Key.Bin).ThenBy(kv => kv.Key.Commodity)
             .Select(kv => new
             {
                 bin = kv.Key.Bin,
                 commodity = kv.Key.Commodity == "" ? null : kv.Key.Commodity,
+                assignedCommodity = assigned.GetValueOrDefault(kv.Key.Bin),
                 loadsIn = kv.Value.LoadsIn,
                 lbsIn = kv.Value.LbsIn,
                 loadsOut = kv.Value.LoadsOut,
                 lbsOut = kv.Value.LbsOut,
                 adjustmentLbs = kv.Value.AdjustmentLbs,
                 onHandLbs = kv.Value.OnHand,
-                onHandTons = Math.Round(kv.Value.OnHand / 2000.0, 2)
+                onHandTons = Math.Round(kv.Value.OnHand / 2000.0, 2),
+                unitName = units.TryGetValue(kv.Key.Commodity, out var u) ? u.Name : defaultUnit.Name,
+                onHandUnits = units.TryGetValue(kv.Key.Commodity, out var u2)
+                    ? Math.Round(kv.Value.OnHand / u2.Pounds, 1)
+                    : Math.Round(kv.Value.OnHand / defaultUnit.Pounds, 1)
             })
             .ToList();
 
@@ -532,18 +527,27 @@ public class ReportController : Controller
         commodity = string.IsNullOrEmpty(commodity) ? null : commodity;
 
         var tickets = _db.Transactions
-            .Where(t => !t.Void && t.DateOut != null && t.OutWeight != null && t.Bin == bin)
+            .Where(t => !t.Void && t.DateOut != null && t.OutWeight != null
+                        && (t.Bin == bin || t.TransferToBin == bin))
             .Where(t => commodity == null ? (t.Commodity == null || t.Commodity == "") : t.Commodity == commodity)
             .Where(t => cutoff == null || t.DateOut < cutoff)
             .ToList()
             .Where(t => t.NetWeight != 0)
-            .Select(t => new
+            .Select(t =>
             {
-                type = t.InWeight > t.OutWeight!.Value ? "In" : "Out",
-                date = t.DateOut.AsUtc(),
-                reference = "Ticket #" + t.Ticket,
-                lbs = (t.InWeight > t.OutWeight.Value ? 1 : -1) * (long)t.NetWeight,
-                adjustmentId = (int?)null
+                // A weighed transfer ticket deducts from its Bin and adds to
+                // its TransferToBin; ordinary tickets go by weigh direction.
+                var isTransfer = !string.IsNullOrEmpty(t.TransferToBin);
+                var incoming = isTransfer ? t.TransferToBin == bin : t.InWeight > t.OutWeight!.Value;
+                return new
+                {
+                    type = isTransfer ? "Transfer" : (incoming ? "In" : "Out"),
+                    date = t.DateOut.AsUtc(),
+                    reference = "Ticket #" + t.Ticket
+                        + (isTransfer ? (incoming ? $" (from {t.Bin})" : $" (to {t.TransferToBin})") : ""),
+                    lbs = (incoming ? 1 : -1) * (long)t.NetWeight,
+                    adjustmentId = (int?)null
+                };
             });
 
         var adjustments = _db.BinAdjustments
@@ -553,7 +557,7 @@ public class ReportController : Controller
             .ToList()
             .Select(a => new
             {
-                type = "Adjustment",
+                type = a.TransferId != null ? "Transfer" : "Adjustment",
                 date = ((DateTime?)a.Date).AsUtc(),
                 reference = string.IsNullOrEmpty(a.Note) ? "Adjustment" : a.Note,
                 lbs = (long)a.AmountLbs,
@@ -588,7 +592,7 @@ public class ReportController : Controller
         if (string.Equals(request.Mode, "trueup", StringComparison.OrdinalIgnoreCase))
         {
             // Measured total → signed delta from the current computed balance.
-            var rows = ComputeBinInventory(null);
+            var rows = BinInventory.Compute(_db, null);
             rows.TryGetValue((request.Bin, commodity ?? ""), out var row);
             var current = row?.OnHand ?? 0;
             delta = (int)Math.Clamp(request.AmountLbs - current, int.MinValue, int.MaxValue);
@@ -621,9 +625,114 @@ public class ReportController : Controller
     {
         var adjustment = _db.BinAdjustments.Find(id);
         if (adjustment == null) return NotFound();
-        _db.BinAdjustments.Remove(adjustment);
+        // A transfer is a linked pair — removing one side alone would conjure
+        // or vanish grain, so both legs go together.
+        if (adjustment.TransferId != null)
+            _db.BinAdjustments.RemoveRange(
+                _db.BinAdjustments.Where(a => a.TransferId == adjustment.TransferId));
+        else
+            _db.BinAdjustments.Remove(adjustment);
         _db.SaveChanges();
         return Json(new { success = true });
+    }
+
+    public class BinCommodityRequest
+    {
+        public string Bin { get; set; } = string.Empty;
+        /// <summary>Null/blank clears the assignment — the bin goes back to
+        /// "empty, takes whatever arrives first".</summary>
+        public string? Commodity { get; set; }
+    }
+
+    /// <summary>
+    /// Assign (or clear) what a bin is designated to hold. Allowed while the
+    /// bin's computed balance is zero — the answer to "the bin is empty, how
+    /// do I switch it to another commodity". While it still holds something,
+    /// only the held commodity (or no change) is accepted.
+    /// </summary>
+    [HttpPost("api/reports/bin-commodity")]
+    public IActionResult SetBinCommodity([FromBody] BinCommodityRequest request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.Bin))
+            return BadRequest(new { message = "Bin is required." });
+
+        var bin = _db.Bins.AsEnumerable()
+            .FirstOrDefault(b => string.Equals(b.BinName, request.Bin.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (bin == null) return NotFound(new { message = $"Bin \"{request.Bin}\" not found." });
+
+        var commodity = string.IsNullOrWhiteSpace(request.Commodity) ? null : request.Commodity.Trim();
+        if (BinInventory.ValidateAssignment(_db, bin.BinName, commodity) is { } err)
+            return BadRequest(new { message = err });
+
+        bin.Commodity = commodity;
+        _db.SaveChanges();
+        return Json(new { success = true, bin = bin.BinName, commodity });
+    }
+
+    public class BinTransferRequest
+    {
+        public string FromBin { get; set; } = string.Empty;
+        public string ToBin { get; set; } = string.Empty;
+        public int AmountLbs { get; set; }
+        public string? Note { get; set; }
+    }
+
+    /// <summary>
+    /// Move grain between bins as a linked pair of adjustments (−lbs from
+    /// source, +lbs to destination, shared TransferId). The commodity travels
+    /// with the grain — it's whatever the source bin holds — and when Lock Bin
+    /// to Commodity is on the destination must be empty or hold the same.
+    /// </summary>
+    [HttpPost("api/reports/bin-transfers")]
+    public IActionResult AddBinTransfer([FromBody] BinTransferRequest request)
+    {
+        if (request == null
+            || string.IsNullOrWhiteSpace(request.FromBin)
+            || string.IsNullOrWhiteSpace(request.ToBin))
+            return BadRequest(new { message = "Both bins are required." });
+
+        var fromBin = request.FromBin.Trim();
+        var toBin = request.ToBin.Trim();
+        if (string.Equals(fromBin, toBin, StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { message = "Source and destination must be different bins." });
+        if (request.AmountLbs <= 0)
+            return BadRequest(new { message = "Transfer amount must be a positive number of pounds." });
+
+        // The commodity moves with the grain: whatever the source bin holds.
+        var held = BinInventory.HeldCommodities(_db);
+        if (!held.TryGetValue(fromBin, out var commodity))
+            return BadRequest(new { message = $"Bin \"{fromBin}\" has nothing to transfer." });
+
+        if (_setupCache.Get() is { UseBinInventory: true, BinCommodityLock: true }
+            && held.TryGetValue(toBin, out var destHolds)
+            && !string.Equals(destHolds, commodity, StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new { message = $"Bin \"{toBin}\" holds {destHolds} — it can't take {commodity}. Empty or true up the bin first." });
+
+        var transferId = Guid.NewGuid().ToString("N");
+        var now = DateTime.UtcNow;
+        var note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+
+        _db.BinAdjustments.Add(new BinAdjustment
+        {
+            Bin = fromBin,
+            Commodity = commodity,
+            AmountLbs = -request.AmountLbs,
+            Date = now,
+            Note = note ?? $"Transfer to {toBin}",
+            TransferId = transferId
+        });
+        _db.BinAdjustments.Add(new BinAdjustment
+        {
+            Bin = toBin,
+            Commodity = commodity,
+            AmountLbs = request.AmountLbs,
+            Date = now,
+            Note = note ?? $"Transfer from {fromBin}",
+            TransferId = transferId
+        });
+        _db.SaveChanges();
+
+        return Json(new { success = true, commodity, transferId });
     }
 
     [HttpGet("api/reports/voided")]

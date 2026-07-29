@@ -88,13 +88,21 @@ public class KioskController : Controller
 
         // Bin prompt only exists while Bin Inventory is enabled — return an
         // empty list when off so a stale kiosk page auto-skips the prompt.
-        var bins = _setupCache.Get().UseBinInventory
+        var setup = _setupCache.Get();
+        var bins = setup.UseBinInventory
             ? _db.Bins
                 .Where(b => b.Active && b.UseAtKiosk).ForSite(siteId)
                 .OrderBy(b => b.BinName)
                 .Select(b => b.BinName)
                 .ToList()
             : new List<string>();
+
+        // Lock Bin to Commodity: bin → its current contents, so the bin
+        // prompt can filter to bins that match the chosen commodity and
+        // auto-set a skipped commodity from the chosen bin.
+        var binCommodities = setup.UseBinInventory && setup.BinCommodityLock
+            ? BinInventory.HeldCommodities(_db)
+            : new Dictionary<string, string>();
 
         // Kiosk-enabled custom fields. Only constrained inputs prompt at the
         // kiosk: numeric fields and list-backed text fields (free text is
@@ -135,7 +143,7 @@ public class KioskController : Controller
             })
             .ToList();
 
-        return Json(new { commodities, customers, carriers, locations, destinations, bins, customFields });
+        return Json(new { commodities, customers, carriers, locations, destinations, bins, binCommodities, customFields });
     }
 
     [HttpGet("api/kiosk/trucks/{carrier}")]
@@ -283,6 +291,11 @@ public class KioskController : Controller
             ManualInbound = false
         };
 
+        // Lock Bin to Commodity backstop — the prompt flow filters bins
+        // client-side; this catches stale kiosk pages and direct posts.
+        if (BinInventory.ValidateTicket(_db, setup, transaction) is { } binLockError)
+            return BadRequest(new { message = binLockError });
+
         if (tareApplied)
         {
             transaction.OutWeight = truck!.RetainedTare;
@@ -297,6 +310,7 @@ public class KioskController : Controller
         _db.Transactions.Add(transaction);
         SaveKioskCustomFields(ticketNumber, request.CustomFields);
         _db.SaveChanges();
+        FormulaFields.RecomputeAndSave(_db, transaction);
         _setupCache.Invalidate();
 
         // Notify all clients
@@ -369,6 +383,11 @@ public class KioskController : Controller
         if (!string.IsNullOrEmpty(request.Location))    transaction.Location    = request.Location;
         if (!string.IsNullOrEmpty(request.Bin))         transaction.Bin         = request.Bin;
 
+        // Lock Bin to Commodity backstop on the merged ticket. Returning here
+        // leaves the tracked entity dirty but unsaved — nothing persists.
+        if (BinInventory.ValidateTicket(_db, _setupCache.Get(), transaction) is { } binLockError)
+            return BadRequest(new { message = binLockError });
+
         // Persist retained tare on the matching truck (feature-gated). Tare = lower of
         // the two weights, matching how Transaction.TareWeight is computed.
         var useRetainedTare = _setupCache.Get().UseRetainedTare;
@@ -381,6 +400,7 @@ public class KioskController : Controller
         }
 
         _db.SaveChanges();
+        FormulaFields.RecomputeAndSave(_db, transaction);
 
         // Notify all clients that a ticket was completed
         await _hub.Clients.All.SendAsync("TicketCompleted", new { ticket = transaction.Ticket, type = "weighout" });

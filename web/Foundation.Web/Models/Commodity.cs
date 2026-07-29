@@ -21,4 +21,15 @@ public class Commodity
     /// at; null = offered at every location.</summary>
     [Display(Name = "Location")]
     public int? SiteId { get; set; }
+
+    /// <summary>Reporting unit label ("Bushels", "CWT", …). When set together
+    /// with UnitPounds, reports show quantities in this unit alongside pounds.</summary>
+    [StringLength(20)]
+    [Display(Name = "Reporting Unit")]
+    public string? UnitName { get; set; }
+
+    /// <summary>Pounds per reporting unit (corn bushel 56, wheat bushel 60,
+    /// CWT 100). Null or 0 = no unit conversion for this commodity.</summary>
+    [Display(Name = "Lbs per Unit")]
+    public double? UnitPounds { get; set; }
 }

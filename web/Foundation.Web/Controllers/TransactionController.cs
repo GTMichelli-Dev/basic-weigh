@@ -74,19 +74,31 @@ public class TransactionController : Controller
 
         var setup = _setupCache.Get();
         ViewBag.BinRequired = setup.UseBinInventory && setup.BinRequired;
+
+        // Lock Bin to Commodity: bin → its current contents, so the form JS
+        // can auto-set the commodity when a holding bin is picked (the save
+        // paths enforce it server-side via ValidateRequiredBin).
+        var binLock = setup.UseBinInventory && setup.BinCommodityLock;
+        ViewBag.BinCommodityLock = binLock;
+        ViewBag.BinCommodities = binLock
+            ? BinInventory.HeldCommodities(_db)
+            : new Dictionary<string, string>();
     }
 
     /// <summary>
-    /// Server-side backstop for the Require Bin gate (Setup → Options). The
-    /// forms enforce it via HTML validation; this catches direct posts and
-    /// stale pages. Returns an error message, or null when the ticket is fine.
+    /// Server-side backstop for the bin gates (Setup → Options). Require Bin
+    /// is enforced on the forms via HTML validation; this catches direct posts
+    /// and stale pages. Lock Bin to Commodity auto-sets a blank commodity from
+    /// the bin's current contents and rejects a mismatch (the form JS normally
+    /// auto-sets it client-side). Returns an error message, or null when the
+    /// ticket is fine.
     /// </summary>
     private string? ValidateRequiredBin(Transaction transaction)
     {
         var setup = _setupCache.Get();
         if (setup.UseBinInventory && setup.BinRequired && string.IsNullOrWhiteSpace(transaction.Bin))
             return "Bin is required.";
-        return null;
+        return BinInventory.ValidateTicket(_db, setup, transaction);
     }
 
     // GET: Transaction/WeighIn (new)
@@ -167,6 +179,7 @@ public class TransactionController : Controller
             SaveCustomFieldValues(transaction.Ticket, customFields);
 
             _db.SaveChanges();
+            FormulaFields.RecomputeAndSave(_db, existing);
 
             if (goToWeighOut)
                 return RedirectToAction("WeighOut", new { id = transaction.Ticket });
@@ -227,6 +240,7 @@ public class TransactionController : Controller
             _db.Transactions.Add(transaction);
             SaveCustomFieldValues(transaction.Ticket, customFields);
             _db.SaveChanges();
+            FormulaFields.RecomputeAndSave(_db, transaction);
             _setupCache.Invalidate();
 
             // A tare-completed ticket is effectively a weigh-out — route the
@@ -411,11 +425,14 @@ public class TransactionController : Controller
         return errors;
     }
 
-    /// <summary>Upserts posted cf_{id} values for a ticket. Caller SaveChanges().</summary>
+    /// <summary>Upserts posted cf_{id} values for a ticket. Caller SaveChanges().
+    /// Formula fields are skipped — they have no form input, and their stored
+    /// values are managed by FormulaFields.RecomputeAndSave.</summary>
     private void SaveCustomFieldValues(string ticket, List<CustomField> fields)
     {
         foreach (var f in fields)
         {
+            if (f.FieldType == "Formula") continue;
             var raw = Request.Form[$"cf_{f.Id}"].FirstOrDefault()?.Trim();
             var existing = _db.TransactionCustomValues
                 .FirstOrDefault(v => v.Ticket == ticket && v.CustomFieldId == f.Id);
@@ -461,8 +478,12 @@ public class TransactionController : Controller
         if (!setup.HideCommodity) target.Commodity = posted.Commodity;
         if (!setup.HideLocation) target.Location = posted.Location;
         if (!setup.HideDestination) target.Destination = posted.Destination;
-        // Bin is only on the form while Bin Inventory is enabled.
-        if (setup.UseBinInventory) target.Bin = posted.Bin;
+        // Bin and Transfer To are only on the form while Bin Inventory is enabled.
+        if (setup.UseBinInventory)
+        {
+            target.Bin = posted.Bin;
+            target.TransferToBin = string.IsNullOrWhiteSpace(posted.TransferToBin) ? null : posted.TransferToBin;
+        }
         if (!setup.HideNotes) target.Notes = posted.Notes;
     }
 
@@ -494,14 +515,16 @@ public class TransactionController : Controller
         existing.OutScale = manualOutWeight ? null : outScaleUsed;
         existing.DateOut = transaction.DateOut ?? DateTime.UtcNow;
         existing.DateIn = transaction.DateIn;
-        ApplyVisibleFields(existing, transaction, setup);
 
         // Server-side backstops. The Weigh Out page enforces both client-side;
-        // this catches direct posts and stale pages.
+        // this catches direct posts and stale pages. Bin validation runs on
+        // the posted values BEFORE they're copied so its auto-set commodity
+        // (Lock Bin to Commodity) lands on the saved ticket.
         foreach (var err in ValidateCustomFieldValues(customFields))
             ModelState.AddModelError("", err);
         if (ValidateRequiredBin(transaction) is { } binError)
             ModelState.AddModelError("", binError);
+        ApplyVisibleFields(existing, transaction, setup);
         if (setup.SignatureMode != "None" && setup.SignatureRequired
             && !System.IO.File.Exists(Path.Combine(TicketsImageDir, $"{id}_Signature.png")))
         {
@@ -527,6 +550,7 @@ public class TransactionController : Controller
         }
 
         _db.SaveChanges();
+        FormulaFields.RecomputeAndSave(_db, existing);
 
         // Camera capture on outbound (only if not manual weight)
         if (setup.SavePicture && !manualOutWeight && !string.IsNullOrEmpty(setup.OutboundCameraId))
@@ -630,6 +654,7 @@ public class TransactionController : Controller
         _db.Transactions.Add(transaction);
         SaveCustomFieldValues(transaction.Ticket, customFields);
         _db.SaveChanges();
+        FormulaFields.RecomputeAndSave(_db, transaction);
         _setupCache.Invalidate();
 
         return RedirectToAction("CompletedTrucks", new { reset = "true" });
@@ -712,6 +737,7 @@ public class TransactionController : Controller
 
         SaveCustomFieldValues(id, customFields);
         _db.SaveChanges();
+        FormulaFields.RecomputeAndSave(_db, existing);
 
         return RedirectToAction("CompletedTrucks");
     }
@@ -887,6 +913,7 @@ public class TransactionController : Controller
         existing.SentToQuickBooks = false; // Reset QB flag on edit
 
         _db.SaveChanges();
+        FormulaFields.RecomputeAndSave(_db, existing);
 
         return Json(new { success = true });
     }

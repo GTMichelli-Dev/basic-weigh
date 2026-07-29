@@ -33,7 +33,9 @@ public static class FieldOrdering
         Std("Bin", !setup.UseBinInventory, setup.FieldOrderBin);
         Std("Notes", setup.HideNotes, setup.FieldOrderNotes);
 
-        foreach (var f in customFields.Where(f => f.Active))
+        // Formula fields are computed at save time — they show in grids and
+        // on tickets, but there's nothing to type on the weigh forms.
+        foreach (var f in customFields.Where(f => f.Active && f.FieldType != "Formula"))
             slots.Add(new FieldSlot($"cf_{f.Id}", f.SortOrder, f));
 
         return slots

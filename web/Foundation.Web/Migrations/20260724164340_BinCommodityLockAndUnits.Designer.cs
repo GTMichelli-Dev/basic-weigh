@@ -3,6 +3,7 @@ using System;
 using Foundation.Web.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace Foundation.Web.Migrations
 {
     [DbContext(typeof(ScaleDbContext))]
-    partial class ScaleDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260724164340_BinCommodityLockAndUnits")]
+    partial class BinCommodityLockAndUnits
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");
@@ -71,11 +74,6 @@ namespace Foundation.Web.Migrations
 
                     b.Property<bool>("BinRequired")
                         .HasColumnType("INTEGER");
-
-                    b.Property<string>("DefaultReportUnit")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .HasColumnType("TEXT");
 
                     b.Property<bool>("DemoMode")
                         .HasColumnType("INTEGER");
@@ -312,7 +310,6 @@ namespace Foundation.Web.Migrations
                             AutoClearStaleRetainedTare = true,
                             BinCommodityLock = false,
                             BinRequired = false,
-                            DefaultReportUnit = "lbs",
                             DemoMode = false,
                             FieldOrderBin = 65,
                             FieldOrderCarrier = 30,
@@ -419,10 +416,6 @@ namespace Foundation.Web.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("Commodity")
-                        .HasMaxLength(50)
-                        .HasColumnType("TEXT");
-
                     b.Property<int?>("SiteId")
                         .HasColumnType("INTEGER");
 
@@ -462,10 +455,6 @@ namespace Foundation.Web.Migrations
 
                     b.Property<string>("Note")
                         .HasMaxLength(200)
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("TransferId")
-                        .HasMaxLength(40)
                         .HasColumnType("TEXT");
 
                     b.HasKey("Id");
@@ -948,10 +937,6 @@ namespace Foundation.Web.Migrations
 
                     b.Property<bool>("SentToQuickBooks")
                         .HasColumnType("INTEGER");
-
-                    b.Property<string>("TransferToBin")
-                        .HasMaxLength(50)
-                        .HasColumnType("TEXT");
 
                     b.Property<string>("TruckId")
                         .HasMaxLength(50)

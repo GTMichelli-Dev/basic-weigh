@@ -46,7 +46,7 @@ public class ApiTablesController : Controller
         var setup = _setupCache.Get();
         var tables = new List<object>();
 
-        object NameTable(string table, string label, string nameCol, bool hasSite) => new
+        object NameTable(string table, string label, string nameCol, bool hasSite, IEnumerable<object>? extraCols = null) => new
         {
             table,
             label,
@@ -60,16 +60,25 @@ public class ApiTablesController : Controller
                 Col("useAtKiosk", "boolean", description: "Forced false while active is false")
             }.Concat(hasSite
                 ? new[] { Col("siteId", "integer", description: "Optional location (sites.id); null = every location") }
-                : Array.Empty<object>()).ToList()
+                : Array.Empty<object>())
+             .Concat(extraCols ?? Array.Empty<object>()).ToList()
         };
 
         tables.Add(NameTable("customers", "Customers", "customerName", hasSite: false));
         tables.Add(NameTable("carriers", "Carriers", "carrierName", hasSite: false));
         tables.Add(NameTable("locations", "Locations (ticket field)", "locationName", hasSite: false));
         tables.Add(NameTable("destinations", "Destinations", "destinationName", hasSite: false));
-        tables.Add(NameTable("commodities", "Commodities", "commodityName", hasSite: true));
+        tables.Add(NameTable("commodities", "Commodities", "commodityName", hasSite: true, extraCols: new[]
+        {
+            Col("unitName", "string", maxLength: 20, description: "Reporting unit label (Bushels, CWT, …)"),
+            Col("unitPounds", "number", description: "Pounds per reporting unit (corn bushel 56, CWT 100)")
+        }));
         if (setup.UseBinInventory)
-            tables.Add(NameTable("bins", "Bins", "binName", hasSite: true));
+            tables.Add(NameTable("bins", "Bins", "binName", hasSite: true, extraCols: new[]
+            {
+                Col("commodity", "string", maxLength: 50,
+                    description: "Assigned commodity — only changeable while the bin's balance is zero")
+            }));
 
         tables.Add(new
         {
@@ -131,16 +140,21 @@ public class ApiTablesController : Controller
             Col("location", "string", maxLength: 50),
             Col("destination", "string", maxLength: 50),
             Col("bin", "string", maxLength: 50, description: setup.UseBinInventory ? null : "Bin Inventory is currently disabled"),
+            Col("transferToBin", "string", maxLength: 50, description: "Destination bin of a weighed bin-to-bin transfer; null = ordinary ticket"),
             Col("notes", "string", maxLength: 500),
             Col("netWeight", "integer", readOnly: true),
             Col("sentToQuickBooks", "boolean", readOnly: true)
         };
         foreach (var f in customFields)
         {
-            var type = f.FieldType switch { "Integer" => "integer", "Real" => "number", _ => "string" };
-            txnColumns.Add(Col("cf_" + f.Id, type, required: f.Required, maxLength: 200,
+            var type = f.FieldType switch { "Integer" => "integer", "Real" or "Formula" => "number", _ => "string" };
+            txnColumns.Add(Col("cf_" + f.Id, type,
+                required: f.Required && f.FieldType != "Formula",
+                maxLength: 200,
+                readOnly: f.FieldType == "Formula",
                 description: $"Custom field \"{f.Name}\""
-                    + (f.ParentField != null ? $" (sub-field of {f.ParentField})" : "")));
+                    + (f.ParentField != null ? $" (sub-field of {f.ParentField})" : "")
+                    + (f.FieldType == "Formula" ? $" — computed: {f.Formula}" : "")));
         }
         tables.Add(new
         {
@@ -186,6 +200,9 @@ public class ApiTablesController : Controller
 
     private static int? Int(JsonElement b, string prop) =>
         b.TryGetProperty(prop, out var e) && e.ValueKind == JsonValueKind.Number ? e.GetInt32() : null;
+
+    private static double? Dbl(JsonElement b, string prop) =>
+        b.TryGetProperty(prop, out var e) && e.ValueKind == JsonValueKind.Number ? e.GetDouble() : null;
 
     private static bool HasNull(JsonElement b, string prop) =>
         b.TryGetProperty(prop, out var e) && e.ValueKind == JsonValueKind.Null;
@@ -265,6 +282,7 @@ public class ApiTablesController : Controller
                     ["location"] = t.Location,
                     ["destination"] = t.Destination,
                     ["bin"] = t.Bin,
+                    ["transferToBin"] = t.TransferToBin,
                     ["notes"] = t.Notes,
                     ["netWeight"] = t.NetWeight,
                     ["sentToQuickBooks"] = t.SentToQuickBooks
@@ -325,7 +343,7 @@ public class ApiTablesController : Controller
                 {
                     var name = Str(body, "commodityName");
                     if (string.IsNullOrWhiteSpace(name)) return Bad("commodityName is required.");
-                    var row = new Commodity { CommodityName = name.Trim(), Active = Bool(body, "active") ?? true, UseAtKiosk = Bool(body, "useAtKiosk") ?? true, SiteId = Int(body, "siteId") };
+                    var row = new Commodity { CommodityName = name.Trim(), Active = Bool(body, "active") ?? true, UseAtKiosk = Bool(body, "useAtKiosk") ?? true, SiteId = Int(body, "siteId"), UnitName = Str(body, "unitName"), UnitPounds = Dbl(body, "unitPounds") };
                     if (!row.Active) row.UseAtKiosk = false;
                     _db.Commodities.Add(row); _db.SaveChanges(); return Json(row);
                 }
@@ -333,7 +351,7 @@ public class ApiTablesController : Controller
                 {
                     var name = Str(body, "binName");
                     if (string.IsNullOrWhiteSpace(name)) return Bad("binName is required.");
-                    var row = new Bin { BinName = name.Trim(), Active = Bool(body, "active") ?? true, UseAtKiosk = Bool(body, "useAtKiosk") ?? true, SiteId = Int(body, "siteId") };
+                    var row = new Bin { BinName = name.Trim(), Active = Bool(body, "active") ?? true, UseAtKiosk = Bool(body, "useAtKiosk") ?? true, SiteId = Int(body, "siteId"), Commodity = Str(body, "commodity")?.Trim() };
                     if (!row.Active) row.UseAtKiosk = false;
                     _db.Bins.Add(row); _db.SaveChanges(); return Json(row);
                 }
@@ -386,7 +404,8 @@ public class ApiTablesController : Controller
                         Customer = Str(body, "customer"), Carrier = Str(body, "carrier"),
                         TruckId = Str(body, "truckId"), Commodity = Str(body, "commodity"),
                         Location = Str(body, "location"), Destination = Str(body, "destination"),
-                        Bin = Str(body, "bin"), Notes = Str(body, "notes"),
+                        Bin = Str(body, "bin"), TransferToBin = Str(body, "transferToBin"),
+                        Notes = Str(body, "notes"),
                         Void = Bool(body, "void") ?? false,
                         ManualInbound = true // API-supplied weights aren't scale captures
                     };
@@ -399,6 +418,7 @@ public class ApiTablesController : Controller
                     _db.Transactions.Add(t);
                     ApplyCustomFieldValues(t.Ticket, body);
                     _db.SaveChanges();
+                    FormulaFields.RecomputeAndSave(_db, t);
                     _setupCache.Invalidate();
                     return Json(new { ticket = t.Ticket });
                 }
@@ -440,11 +460,13 @@ public class ApiTablesController : Controller
                 if (body.TryGetProperty("location", out _)) t.Location = Str(body, "location");
                 if (body.TryGetProperty("destination", out _)) t.Destination = Str(body, "destination");
                 if (body.TryGetProperty("bin", out _)) t.Bin = Str(body, "bin");
+                if (body.TryGetProperty("transferToBin", out _)) t.TransferToBin = Str(body, "transferToBin");
                 if (body.TryGetProperty("notes", out _)) t.Notes = Str(body, "notes");
                 if (Bool(body, "void") is { } v) t.Void = v;
                 t.SentToQuickBooks = false; // edited tickets need re-sending
                 ApplyCustomFieldValues(t.Ticket, body);
                 _db.SaveChanges();
+                FormulaFields.RecomputeAndSave(_db, t);
                 return Json(new { success = true, ticket = t.Ticket });
             }
 
@@ -486,6 +508,8 @@ public class ApiTablesController : Controller
                     if (Str(body, "commodityName") is { } n) row.CommodityName = n.Trim();
                     ApplyActiveKiosk(body, v => row.Active = v, () => row.Active, v => row.UseAtKiosk = v);
                     if (Int(body, "siteId") is { } s) row.SiteId = s; else if (HasNull(body, "siteId")) row.SiteId = null;
+                    if (Str(body, "unitName") is { } un) row.UnitName = un.Trim(); else if (HasNull(body, "unitName")) row.UnitName = null;
+                    if (Dbl(body, "unitPounds") is { } up) row.UnitPounds = up; else if (HasNull(body, "unitPounds")) row.UnitPounds = null;
                     _db.SaveChanges(); return Json(row);
                 }
                 case "bins":
@@ -494,6 +518,20 @@ public class ApiTablesController : Controller
                     if (Str(body, "binName") is { } n) row.BinName = n.Trim();
                     ApplyActiveKiosk(body, v => row.Active = v, () => row.Active, v => row.UseAtKiosk = v);
                     if (Int(body, "siteId") is { } s) row.SiteId = s; else if (HasNull(body, "siteId")) row.SiteId = null;
+                    // Assigned commodity only changes while the bin is at zero
+                    // (or to match what it already holds) — same rule as the
+                    // Bin Report's Set Commodity action.
+                    if (body.TryGetProperty("commodity", out _))
+                    {
+                        var commodity = Str(body, "commodity")?.Trim();
+                        if (string.IsNullOrEmpty(commodity)) commodity = null;
+                        if (!string.Equals(commodity, row.Commodity, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (BinInventory.ValidateAssignment(_db, row.BinName, commodity) is { } err)
+                                return Bad(err);
+                            row.Commodity = commodity;
+                        }
+                    }
                     _db.SaveChanges(); return Json(row);
                 }
                 case "sites":
@@ -547,7 +585,9 @@ public class ApiTablesController : Controller
     /// on a ticket. Values are stored as text, capped at 200 chars.</summary>
     private void ApplyCustomFieldValues(string ticket, JsonElement body)
     {
-        var fields = _db.CustomFields.Where(f => f.Active).ToList();
+        // Formula fields are computed server-side — API-supplied values for
+        // them are ignored rather than stored.
+        var fields = _db.CustomFields.Where(f => f.Active && f.FieldType != "Formula").ToList();
         foreach (var f in fields)
         {
             string? raw = null;

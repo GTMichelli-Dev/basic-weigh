@@ -148,6 +148,10 @@ else if (Model.Key == "Destination")
 else if (Model.Key == "Bin")
 {
     var binRequired = (bool)(ViewBag.BinRequired ?? false);
+    // Lock Bin to Commodity (Setup → Options): each bin's current contents,
+    // shown in the option label and carried in data-commodity so the shared
+    // _BinCommodityLockJs script auto-sets the Commodity field.
+    var binCommodities = ViewBag.BinCommodities as Dictionary<string, string> ?? new Dictionary<string, string>();
     <div class="mb-3">
         <label class="form-label">
             Bin
@@ -160,7 +164,25 @@ else if (Model.Key == "Bin")
             <option value="">-- Select --</option>
             @foreach (var b in (List<Foundation.Web.Models.Bin>)ViewBag.Bins)
             {
-                <option value="@b.BinName" selected="@(txn?.Bin == b.BinName ? "selected" : null)">@b.BinName</option>
+                var held = binCommodities.TryGetValue(b.BinName, out var h) ? h : null;
+                <option value="@b.BinName" data-commodity="@held"
+                        selected="@(txn?.Bin == b.BinName ? "selected" : null)">@b.BinName@(held != null ? $" ({held})" : "")</option>
+            }
+        </select>
+    </div>
+    @* Weighed bin-to-bin transfer: picking a destination marks this ticket as
+       a transfer — the net weight leaves Bin and lands in Transfer To. The
+       shared _BinCommodityLockJs script keeps the two selects from picking
+       the same bin and (lock mode) hides mismatched destinations. *@
+    <div class="mb-3">
+        <label class="form-label">Transfer To <span class="small" style="color: var(--bw-text-muted);">(bin-to-bin transfer)</span></label>
+        <select name="TransferToBin" class="form-select">
+            <option value="">-- Not a transfer --</option>
+            @foreach (var b in (List<Foundation.Web.Models.Bin>)ViewBag.Bins)
+            {
+                var held = binCommodities.TryGetValue(b.BinName, out var h) ? h : null;
+                <option value="@b.BinName" data-commodity="@held"
+                        selected="@(txn?.TransferToBin == b.BinName ? "selected" : null)">@b.BinName@(held != null ? $" ({held})" : "")</option>
             }
         </select>
     </div>

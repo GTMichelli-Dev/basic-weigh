@@ -390,6 +390,11 @@
                         method: 'PUT',
                         contentType: 'application/json',
                         data: JSON.stringify(values)
+                    }).catch(function (xhr) {
+                        // Surface the server's rule message (e.g. "bin still
+                        // has Corn on hand") instead of a generic failure.
+                        var msg = (xhr.responseJSON && xhr.responseJSON.message) || 'Save failed.';
+                        return $.Deferred().reject(msg);
                     });
                 },
                 remove: function (key) {
@@ -401,7 +406,7 @@
             });
         }
 
-        function initNameActiveGrid(selector, endpoint, nameField, nameCaption, qbManaged, addCarrierAction, siteLookup) {
+        function initNameActiveGrid(selector, endpoint, nameField, nameCaption, qbManaged, addCarrierAction, siteLookup, extraCols) {
             if (!$(selector).length) return; // tab hidden with its field (Setup → Fields)
             var lockName = useQuickBooks && qbManaged;
             var cols = [
@@ -426,6 +431,9 @@
                         allowClearing: true
                     }
                 });
+            }
+            if (extraCols && extraCols.length) {
+                cols = cols.concat(extraCols);
             }
             if (addCarrierAction) {
                 cols.push({
@@ -494,16 +502,37 @@
         initNameActiveGrid('#locationsGrid', 'locations', 'locationName', 'Location Name', false);
         initNameActiveGrid('#destinationsGrid', 'destinations', 'destinationName', 'Destination Name', false);
 
+        // Reporting unit per commodity: reports show quantities in this unit
+        // alongside pounds (corn Bushels at 56 lbs, wheat Bushels at 60, CWT at 100).
+        var commodityUnitCols = [
+            { dataField: 'unitName', caption: 'Reporting Unit', width: 130,
+              validationRules: [{ type: 'stringLength', max: 20 }] },
+            { dataField: 'unitPounds', caption: 'Lbs per Unit', dataType: 'number', width: 120,
+              validationRules: [{ type: 'range', min: 0, message: 'Lbs per unit must be positive' }] }
+        ];
+
         // Bins and commodities can be limited to a physical location (Scales
         // page → Locations); the column only appears once locations exist.
-        $.getJSON('/api/sites').done(function (data) {
-            var siteLookup = (data || []).filter(function (s) { return s.active; })
-                .map(function (s) { return { id: s.id, name: s.name }; });
-            initNameActiveGrid('#binsGrid', 'bins', 'binName', 'Bin Name', false, false, siteLookup);
-            initNameActiveGrid('#commoditiesGrid', 'commodities', 'commodityName', 'Commodity Name', true, false, siteLookup);
-        }).fail(function () {
-            initNameActiveGrid('#binsGrid', 'bins', 'binName', 'Bin Name', false);
-            initNameActiveGrid('#commoditiesGrid', 'commodities', 'commodityName', 'Commodity Name', true);
+        // Bins also get an assigned-commodity column — the server rejects a
+        // change while the bin still holds something else.
+        var binExtraCols = [];
+        $.getJSON('/api/masterdata/commodities').done(function (data) {
+            var names = (data || []).filter(function (c) { return c.active; })
+                .map(function (c) { return c.commodityName; });
+            binExtraCols.push({
+                dataField: 'commodity', caption: 'Commodity', width: 160,
+                lookup: { dataSource: names, allowClearing: true }
+            });
+        }).always(function () {
+            $.getJSON('/api/sites').done(function (data) {
+                var siteLookup = (data || []).filter(function (s) { return s.active; })
+                    .map(function (s) { return { id: s.id, name: s.name }; });
+                initNameActiveGrid('#binsGrid', 'bins', 'binName', 'Bin Name', false, false, siteLookup, binExtraCols);
+                initNameActiveGrid('#commoditiesGrid', 'commodities', 'commodityName', 'Commodity Name', true, false, siteLookup, commodityUnitCols);
+            }).fail(function () {
+                initNameActiveGrid('#binsGrid', 'bins', 'binName', 'Bin Name', false, false, null, binExtraCols);
+                initNameActiveGrid('#commoditiesGrid', 'commodities', 'commodityName', 'Commodity Name', true, false, null, commodityUnitCols);
+            });
         });
 
         // Dropdown-value grids for list-backed custom fields (one tab each).

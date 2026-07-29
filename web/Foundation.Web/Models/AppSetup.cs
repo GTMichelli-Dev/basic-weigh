@@ -158,6 +158,26 @@ public class AppSetup
     [Display(Name = "Bin Entry")]
     public bool BinRequired { get; set; }
 
+    /// <summary>
+    /// When Bin Inventory is on, tie each bin to the commodity it currently
+    /// holds (computed balance &gt; 0): selecting that bin auto-sets the
+    /// commodity on tickets and a mismatched commodity is rejected, so corn
+    /// can't be booked into a wheat bin. The tie releases on its own when the
+    /// bin is emptied or trued up to zero.
+    /// </summary>
+    [Display(Name = "Lock Bin to Commodity")]
+    public bool BinCommodityLock { get; set; }
+
+    /// <summary>
+    /// Fallback reporting unit for report quantity columns. A commodity with
+    /// its own Reporting Unit + Lbs per Unit (Edit Tables → Commodities)
+    /// always uses those; commodities without one show this unit instead —
+    /// "lbs" (plain pounds) or "kg" (converted from the weighed pounds).
+    /// </summary>
+    [StringLength(10)]
+    [Display(Name = "Default Reporting Unit")]
+    public string DefaultReportUnit { get; set; } = "lbs";
+
     // Camera / ticket images
     [Display(Name = "Save Picture for Ticket")]
     public bool SavePicture { get; set; }

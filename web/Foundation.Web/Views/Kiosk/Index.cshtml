@@ -977,6 +977,7 @@
         promptBinOnInbound: @(Model.PromptKioskBinOnInbound.ToString().ToLower()),
         promptBinOnOutbound: @(Model.PromptKioskBinOnOutbound.ToString().ToLower()),
         allowSkipBin: @(Model.AllowSkipBin.ToString().ToLower()),
+        binCommodityLock: @(Model.BinCommodityLock.ToString().ToLower()),
         useRetainedTare: @(Model.UseRetainedTare.ToString().ToLower()),
         demoMode: @(Model.DemoMode.ToString().ToLower()),
         header1: '@Html.Raw((Model.Header1 ?? "").Replace("'", "\\'"))',
@@ -1449,6 +1450,20 @@
                 ? (prompt.valueMap[parentAnswer] || [])
                 : (prompt.allItems || []);
         }
+        // Lock Bin to Commodity: a bin holding grain only accepts that
+        // commodity — drop bins holding something else than the commodity
+        // already answered this flow (or carried on the open ticket for a
+        // weigh-out). Bins with nothing in them always show.
+        if (prompt.key === 'bin' && kioskSettings.binCommodityLock) {
+            var effCommodity = weighinData.commodity
+                || (activeFlow === 'weighout' && weighoutTicket ? weighoutTicket.commodity : null);
+            if (effCommodity) {
+                var held = lists.binCommodities || {};
+                prompt.items = (prompt.items || []).filter(function (b) {
+                    return !held[b] || held[b] === effCommodity;
+                });
+            }
+        }
         var rawItems = prompt.items || [];
         // Auto-skip lists with no real items — no point showing only "— None —".
         if (rawItems.length === 0) {
@@ -1644,6 +1659,13 @@
         var prompt = promptQueue[promptIndex];
         var selected = currentListItems[selectedListIndex];
         weighinData[prompt.key] = selected;
+
+        // Lock Bin to Commodity: picking a holding bin answers the commodity
+        // too when it wasn't already chosen this flow (e.g. prompt skipped).
+        if (prompt.key === 'bin' && kioskSettings.binCommodityLock && selected) {
+            var heldCommodity = (lists.binCommodities || {})[selected];
+            if (heldCommodity && !weighinData.commodity) weighinData.commodity = heldCommodity;
+        }
         promptIndex++;
 
         // After Carrier + Truck are picked during a weigh-IN, see if there's

@@ -34,17 +34,6 @@
 <h3>Reports</h3>
 <script>var companyName = '@Html.Raw(ViewBag.CompanyName)';</script>
 
-@if (useBinInventory)
-{
-    <ul class="nav nav-pills mb-2">
-        <li class="nav-item">
-            <button type="button" class="nav-link active" id="tabBtnTransactions">Transactions</button>
-        </li>
-        <li class="nav-item">
-            <button type="button" class="nav-link" id="tabBtnBinInventory">Bin Inventory</button>
-        </li>
-    </ul>
-}
 
 <!-- Image Lightbox Modal -->
 <div class="modal fade" id="imageModal" tabindex="-1">
@@ -108,7 +97,6 @@ function showTicketImage(ticket, direction, data) {
 }
 </script>
 
-<div id="pane-transactions">
 <div class="report-controls">
     <span class="ctrl-label">Report:</span>
     <div id="tplSelect"></div>
@@ -172,74 +160,32 @@ function showTicketImage(ticket, direction, data) {
         </div>
     </div>
 </div>
-</div><!-- /pane-transactions -->
 
-@if (useBinInventory)
-{
-<div id="pane-binInventory" style="display:none;">
-    <div class="report-controls">
-        <span class="ctrl-label">As Of:</span>
-        <div id="binAsOfDate"></div>
-        <div id="binAddAdjustmentBtn" class="ms-2"></div>
-        <span class="ctrl-label ms-auto text-muted" style="font-weight:400;">
-            Loads in add to a bin, loads out deduct; true-ups reconcile shrinkage. Expand a row for its history.
-        </span>
-    </div>
-    <div id="binInventoryGrid"></div>
-</div>
-
-<!-- Bin adjustment / true-up modal -->
-<div class="modal fade" id="binAdjModal" tabindex="-1">
-    <div class="modal-dialog modal-dialog-centered">
+<!-- Totals: per-column aggregate functions for the totals + group rows -->
+<div class="modal fade" id="totalsModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
         <div class="modal-content">
             <div class="modal-header py-2">
-                <h6 class="modal-title" id="binAdjTitle">Bin Adjustment</h6>
+                <h6 class="modal-title">Report Totals</h6>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body py-2">
-                <div class="row g-2 mb-2">
-                    <div class="col-6">
-                        <label class="form-label mb-0 small">Bin</label>
-                        <select id="binAdjBin" class="form-select form-select-sm"></select>
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label mb-0 small">Commodity</label>
-                        <select id="binAdjCommodity" class="form-select form-select-sm"></select>
-                    </div>
+                <div class="small text-muted mb-2">
+                    Pick a function for each numeric column. It shows in the totals
+                    row at the bottom and on every group row. Saved reports remember
+                    their own totals.
                 </div>
-                <div class="mb-2 small" id="binAdjCurrent" style="color: var(--bw-text-muted);"></div>
-                <div class="mb-2">
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="radio" name="binAdjMode" id="binAdjModeTrueUp" value="trueup" checked />
-                        <label class="form-check-label small" for="binAdjModeTrueUp"><strong>True Up</strong> — set to measured total</label>
-                    </div>
-                    <div class="form-check form-check-inline">
-                        <input class="form-check-input" type="radio" name="binAdjMode" id="binAdjModeAdjust" value="adjust" />
-                        <label class="form-check-label small" for="binAdjModeAdjust"><strong>Adjust</strong> — add/subtract an amount</label>
-                    </div>
-                </div>
-                <div class="mb-2">
-                    <label class="form-label mb-0 small" id="binAdjAmountLabel">Measured amount on hand (lbs)</label>
-                    <input type="number" step="1" id="binAdjAmount" class="form-control form-control-sm" />
-                    <div class="form-text small" id="binAdjAmountHint">
-                        The difference from the computed balance is recorded as an adjustment.
-                    </div>
-                </div>
-                <div class="mb-1">
-                    <label class="form-label mb-0 small">Note</label>
-                    <input type="text" maxlength="200" id="binAdjNote" class="form-control form-control-sm"
-                           placeholder="e.g. Measured after drying — shrinkage" />
-                </div>
-                <div id="binAdjError" class="small text-danger mt-1" style="display:none;"></div>
+                <div id="totalsRows"></div>
             </div>
             <div class="modal-footer py-1">
+                <button type="button" class="btn btn-outline-secondary btn-sm me-auto" id="totalsResetBtn">Reset to Default</button>
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" id="binAdjSaveBtn">Save</button>
+                <button type="button" class="btn btn-primary btn-sm" id="totalsApplyBtn">Apply</button>
             </div>
         </div>
     </div>
 </div>
-}
+
 
 @section Scripts {
 <script src="~/js/ticket-image-download.js"></script>
@@ -358,6 +304,28 @@ function showTicketImage(ticket, direction, data) {
                 window.location.reload();
             }
         });
+
+        // --- Custom totals (Totals button on the grid toolbar) ---
+        // Per-column aggregate for the totals row and group rows: Sum / Avg /
+        // Min / Max / Count on any numeric column, including numeric custom
+        // fields (matched by their cf_ name — summaries evaluate
+        // calculateCellValue). Null = the standard lbs/tons totals below.
+        // The working choice rides in localStorage; a saved report carries its
+        // own copy inside its state JSON (state.bwSummaries).
+        var DEFAULT_SUMMARY = {
+            totalItems: [
+                { column: 'ticket', summaryType: 'count', displayFormat: 'Loads: {0}' },
+                { column: 'netWeight', summaryType: 'sum', valueFormat: '#,##0', displayFormat: 'Total: {0} lbs' },
+                { column: 'netTons', summaryType: 'sum', valueFormat: '#,##0.00', displayFormat: 'Total: {0} tons' }
+            ],
+            groupItems: [
+                { column: 'ticket', summaryType: 'count', displayFormat: '{0} loads' },
+                { column: 'netWeight', summaryType: 'sum', valueFormat: '#,##0', displayFormat: '{0} lbs' },
+                { column: 'netTons', summaryType: 'sum', valueFormat: '#,##0.00', displayFormat: '{0} tons' }
+            ]
+        };
+        var customSummaries = null;
+        try { customSummaries = JSON.parse(localStorage.getItem('reportSummaries_v1')); } catch (e) { }
 
         // --- Data Grid ---
         var grid = $('#reportGrid').dxDataGrid({
@@ -544,6 +512,15 @@ function showTicketImage(ticket, direction, data) {
                         location: 'after',
                         widget: 'dxButton',
                         options: {
+                            icon: 'formula', text: 'Totals',
+                            hint: 'Pick Sum / Avg / Min / Max / Count for the numeric columns',
+                            onClick: function () { openTotalsModal(); }
+                        }
+                    },
+                    {
+                        location: 'after',
+                        widget: 'dxButton',
+                        options: {
                             icon: 'exportpdf', text: 'PDF Landscape',
                             onClick: function () { exportPdf('landscape'); }
                         }
@@ -667,10 +644,21 @@ function showTicketImage(ticket, direction, data) {
                     { dataField: 'location', caption: 'Location' },
                     { dataField: 'destination', caption: 'Destination' },
                     { dataField: 'bin', caption: 'Bin' },
+                    // Destination bin of a weighed bin-to-bin transfer; hidden
+                    // unless Bin Inventory is on.
+                    { dataField: 'transferToBin', caption: 'Transfer To', visible: @(useBinInventory ? "true" : "false") },
                     { dataField: 'inWeight', caption: 'In (lbs)', dataType: 'number', format: '#,##0', width: 150 },
                     { dataField: 'outWeight', caption: 'Out (lbs)', dataType: 'number', format: '#,##0', width: 150 },
                     { dataField: 'netWeight', caption: 'Net (lbs)', dataType: 'number', format: '#,##0', width: 150, allowHiding: false, showInColumnChooser: false },
                     { dataField: 'netTons', caption: 'Net (tons)', dataType: 'number', format: '#,##0.00', width: 150 },
+                    // Reporting unit from the commodity (Edit Tables → Commodities).
+                    // No grand-total summary — bushels and CWT don't add up.
+                    { dataField: 'netUnits', caption: 'Net (units)', dataType: 'number', width: 130, visible: false,
+                      cellTemplate: function (container, options) {
+                          if (options.value == null) { $('<span>').text('').appendTo(container); return; }
+                          $('<span>').text(Number(options.value).toLocaleString('en-US') + ' ' + (options.data.unit || ''))
+                              .appendTo(container);
+                      } },
                     { dataField: 'notes', caption: 'Notes', cssClass: 'notes-cell' }
                 ];
                 cols = bwApplyFieldConfig(cols);
@@ -706,18 +694,7 @@ function showTicketImage(ticket, direction, data) {
                 }
                 return cols;
             })(),
-            summary: {
-                totalItems: [
-                    { column: 'ticket', summaryType: 'count', displayFormat: 'Loads: {0}' },
-                    { column: 'netWeight', summaryType: 'sum', valueFormat: '#,##0', displayFormat: 'Total: {0} lbs' },
-                    { column: 'netTons', summaryType: 'sum', valueFormat: '#,##0.00', displayFormat: 'Total: {0} tons' }
-                ],
-                groupItems: [
-                    { column: 'ticket', summaryType: 'count', displayFormat: '{0} loads' },
-                    { column: 'netWeight', summaryType: 'sum', valueFormat: '#,##0', displayFormat: '{0} lbs' },
-                    { column: 'netTons', summaryType: 'sum', valueFormat: '#,##0.00', displayFormat: '{0} tons' }
-                ]
-            },
+            summary: DEFAULT_SUMMARY,
             showBorders: true,
             filterRow: { visible: true },
             headerFilter: { visible: true },
@@ -741,6 +718,85 @@ function showTicketImage(ticket, direction, data) {
             export: { enabled: false }
         }).dxDataGrid('instance');
 
+        // ===== CUSTOM TOTALS =====
+        /// Numeric columns eligible for a totals function. Custom-field
+        /// numeric columns carry no dataField — summaries match their cf_ name.
+        function totalsColumns() {
+            return grid.option('columns').filter(function (c) {
+                return c.dataType === 'number' && (c.dataField || (c.name || '').indexOf('cf_') === 0);
+            }).map(function (c) {
+                return { key: c.dataField || c.name, caption: c.caption || c.dataField, format: c.format };
+            });
+        }
+
+        var TOTALS_FN_LABELS = { sum: 'Sum', avg: 'Avg', min: 'Min', max: 'Max', count: 'Count' };
+
+        function buildSummary(config) {
+            function items(isGroup) {
+                var out = [{ column: 'ticket', summaryType: 'count', displayFormat: isGroup ? '{0} loads' : 'Loads: {0}' }];
+                totalsColumns().forEach(function (c) {
+                    var fn = config[c.key];
+                    if (!fn || !TOTALS_FN_LABELS[fn]) return;
+                    out.push({
+                        column: c.key,
+                        summaryType: fn,
+                        valueFormat: fn === 'count' ? '#,##0' : (c.format || '#,##0.##'),
+                        displayFormat: TOTALS_FN_LABELS[fn] + ': {0}'
+                    });
+                });
+                return out;
+            }
+            return { totalItems: items(false), groupItems: items(true) };
+        }
+
+        /// config = { netWeight: 'sum', cf_5: 'avg', … } or null for the
+        /// standard lbs/tons totals. persist=false is used by template loads.
+        function applySummaries(config, persist) {
+            customSummaries = config && Object.keys(config).length ? config : null;
+            grid.option('summary', customSummaries ? buildSummary(customSummaries) : DEFAULT_SUMMARY);
+            if (persist !== false) {
+                if (customSummaries) localStorage.setItem('reportSummaries_v1', JSON.stringify(customSummaries));
+                else localStorage.removeItem('reportSummaries_v1');
+            }
+        }
+
+        function openTotalsModal() {
+            var current = customSummaries || { netWeight: 'sum', netTons: 'sum' };
+            var $rows = $('#totalsRows').empty();
+            totalsColumns().forEach(function (c) {
+                var $row = $('<div class="d-flex align-items-center mb-1">');
+                $('<span class="small flex-grow-1">').text(c.caption).appendTo($row);
+                var $sel = $('<select class="form-select form-select-sm" style="width:110px;">')
+                    .attr('data-field', c.key);
+                $('<option value="">— None —</option>').appendTo($sel);
+                Object.keys(TOTALS_FN_LABELS).forEach(function (fn) {
+                    $('<option>').val(fn).text(TOTALS_FN_LABELS[fn])
+                        .prop('selected', current[c.key] === fn).appendTo($sel);
+                });
+                $sel.appendTo($row);
+                $row.appendTo($rows);
+            });
+            new bootstrap.Modal('#totalsModal').show();
+        }
+
+        $('#totalsApplyBtn').on('click', function () {
+            var config = {};
+            $('#totalsRows select').each(function () {
+                if (this.value) config[$(this).attr('data-field')] = this.value;
+            });
+            applySummaries(config);
+            bootstrap.Modal.getInstance(document.getElementById('totalsModal')).hide();
+        });
+
+        $('#totalsResetBtn').on('click', function () {
+            applySummaries(null);
+            bootstrap.Modal.getInstance(document.getElementById('totalsModal')).hide();
+        });
+
+        // Re-apply the operator's working totals from the last visit (the grid
+        // itself restores its layout via stateStoring the same way).
+        if (customSummaries) applySummaries(customSummaries, false);
+
         // ===== REPORT BUILDER (saved templates) =====
         // The whole custom report IS the grid state (columns, order, widths,
         // grouping, sorting, filters). Save it under a name, reload it any
@@ -761,6 +817,9 @@ function showTicketImage(ticket, direction, data) {
             var state = grid.state() || {};
             delete state.pageIndex;     // transient — not part of the layout
             delete state.focusedRowKey;
+            // Custom totals ride inside the template state so every saved
+            // report remembers its own totals row (stripped again on load).
+            if (customSummaries) state.bwSummaries = customSummaries;
             return JSON.stringify(state);
         }
 
@@ -782,6 +841,7 @@ function showTicketImage(ticket, direction, data) {
         function applyTemplate(id) {
             if (id === 0) {
                 grid.state(null); // standard layout from the column config
+                applySummaries(null);
                 syncGroupTagsFromGrid();
                 return;
             }
@@ -789,7 +849,10 @@ function showTicketImage(ticket, direction, data) {
                 var state = {};
                 try { state = JSON.parse(t.stateJson || '{}'); } catch (e) { }
                 delete state.pageIndex;
+                var tplSummaries = state.bwSummaries || null;
+                delete state.bwSummaries;
                 grid.state(state);
+                applySummaries(tplSummaries);
                 syncGroupTagsFromGrid();
             }).fail(function () {
                 showAlert('<i class="fa fa-times-circle"></i> Could not load that report.', 'danger');
@@ -1187,236 +1250,4 @@ function showTicketImage(ticket, direction, data) {
         }
     });
 </script>
-@if (useBinInventory)
-{
-<text>
-<script>
-    // ===== BIN INVENTORY TAB =====
-    $(function () {
-        var binGrid = null;          // created lazily on first tab switch
-        var binAsOf = new Date();    // inclusive as-of date (display TZ)
-        var binRowsCache = [];       // last-loaded rows, for the modal's current-balance line
-        var binsList = [];           // active bin names (modal dropdown)
-        var commoditiesList = [];    // active commodity names (modal dropdown)
-
-        function showPane(which) {
-            $('#pane-transactions').toggle(which === 'transactions');
-            $('#pane-binInventory').toggle(which === 'bin');
-            $('#tabBtnTransactions').toggleClass('active', which === 'transactions');
-            $('#tabBtnBinInventory').toggleClass('active', which === 'bin');
-            if (which === 'bin' && !binGrid) initBinInventory();
-        }
-        $('#tabBtnTransactions').on('click', function () { showPane('transactions'); });
-        $('#tabBtnBinInventory').on('click', function () { showPane('bin'); });
-
-        function fmtLbs(n) { return (n == null ? 0 : Number(n)).toLocaleString('en-US'); }
-        function asOfParam() { return DevExpress.localization.formatDate(binAsOf, 'yyyy-MM-dd'); }
-
-        function initBinInventory() {
-            $.getJSON('/api/masterdata/bins').done(function (data) {
-                binsList = data.filter(function (b) { return b.active; }).map(function (b) { return b.binName; });
-            });
-            $.getJSON('/api/masterdata/commodities').done(function (data) {
-                commoditiesList = data.filter(function (c) { return c.active; }).map(function (c) { return c.commodityName; });
-            });
-
-            $('#binAsOfDate').dxDateBox({
-                value: binAsOf, type: 'date', displayFormat: 'MM/dd/yyyy', width: 140,
-                onValueChanged: function (e) { binAsOf = e.value; binGrid.refresh(); }
-            });
-
-            $('#binAddAdjustmentBtn').dxButton({
-                icon: 'edit', text: 'True Up / Adjust',
-                hint: 'Record a measured total or a +/- correction for a bin',
-                onClick: function () { openBinAdjModal(null); }
-            });
-
-            binGrid = $('#binInventoryGrid').dxDataGrid({
-                hoverStateEnabled: true,
-                dataSource: new DevExpress.data.CustomStore({
-                    key: '__key',
-                    load: function () {
-                        return $.getJSON('/api/reports/bin-inventory', { asOfDate: asOfParam() }).then(function (rows) {
-                            rows.forEach(function (r) { r.__key = r.bin + '||' + (r.commodity || ''); });
-                            binRowsCache = rows;
-                            return rows;
-                        });
-                    }
-                }),
-                columns: [
-                    { dataField: 'bin', caption: 'Bin', sortOrder: 'asc', sortIndex: 0 },
-                    { dataField: 'commodity', caption: 'Commodity', sortOrder: 'asc', sortIndex: 1,
-                      calculateDisplayValue: function (r) { return r.commodity || '—'; } },
-                    { dataField: 'loadsIn', caption: 'Loads In', dataType: 'number', width: 100 },
-                    { dataField: 'lbsIn', caption: 'In (lbs)', dataType: 'number', format: '#,##0', width: 120 },
-                    { dataField: 'loadsOut', caption: 'Loads Out', dataType: 'number', width: 100 },
-                    { dataField: 'lbsOut', caption: 'Out (lbs)', dataType: 'number', format: '#,##0', width: 120 },
-                    { dataField: 'adjustmentLbs', caption: 'Adjustments (lbs)', dataType: 'number', format: '#,##0', width: 140 },
-                    { dataField: 'onHandLbs', caption: 'On Hand (lbs)', dataType: 'number', format: '#,##0', width: 140,
-                      cssClass: 'fw-bold',
-                      cellTemplate: function (container, options) {
-                          $('<span>').text(fmtLbs(options.value))
-                              .css(options.value < 0 ? { color: '#c53030', fontWeight: 'bold' } : { fontWeight: 'bold' })
-                              .appendTo(container);
-                      } },
-                    { dataField: 'onHandTons', caption: 'On Hand (tons)', dataType: 'number', format: '#,##0.00', width: 130 },
-                    {
-                        caption: '', width: 110, allowFiltering: false, allowSorting: false, allowExporting: false,
-                        cellTemplate: function (container, options) {
-                            $('<button type="button" class="grid-action-btn btn btn-sm btn-outline-primary py-0">True Up</button>')
-                                .on('click', function () { openBinAdjModal(options.data); })
-                                .appendTo(container);
-                        }
-                    }
-                ],
-                summary: {
-                    totalItems: [
-                        { column: 'lbsIn', summaryType: 'sum', valueFormat: '#,##0', displayFormat: 'In: {0} lbs' },
-                        { column: 'lbsOut', summaryType: 'sum', valueFormat: '#,##0', displayFormat: 'Out: {0} lbs' },
-                        { column: 'onHandLbs', summaryType: 'sum', valueFormat: '#,##0', displayFormat: 'On hand: {0} lbs' }
-                    ]
-                },
-                masterDetail: {
-                    enabled: true,
-                    template: function (container, options) {
-                        var row = options.data;
-                        $('<div>').dxDataGrid({
-                            dataSource: new DevExpress.data.CustomStore({
-                                loadMode: 'raw',
-                                load: function () {
-                                    return $.getJSON('/api/reports/bin-inventory/detail', {
-                                        bin: row.bin, commodity: row.commodity || '', asOfDate: asOfParam()
-                                    });
-                                }
-                            }),
-                            showBorders: true,
-                            columnAutoWidth: true,
-                            paging: { pageSize: 10 },
-                            columns: [
-                                { dataField: 'date', caption: 'Date', dataType: 'datetime', format: 'MM/dd/yyyy hh:mm a', width: 160, sortOrder: 'desc' },
-                                { dataField: 'type', caption: 'Type', width: 110 },
-                                { dataField: 'reference', caption: 'Reference' },
-                                { dataField: 'lbs', caption: 'Change (lbs)', dataType: 'number', width: 130,
-                                  cellTemplate: function (c, o) {
-                                      var v = o.value || 0;
-                                      $('<span>').text((v > 0 ? '+' : '') + fmtLbs(v))
-                                          .css({ color: v < 0 ? '#c53030' : '#2f855a', fontWeight: 'bold' })
-                                          .appendTo(c);
-                                  } },
-                                {
-                                    caption: '', width: 90, allowFiltering: false, allowSorting: false,
-                                    cellTemplate: function (c, o) {
-                                        // Only manual adjustments can be removed here — tickets
-                                        // are corrected on the Completed page.
-                                        if (o.data.adjustmentId == null) return;
-                                        $('<button type="button" class="btn btn-sm btn-outline-danger py-0">Remove</button>')
-                                            .on('click', function () {
-                                                if (!confirm('Remove this adjustment?')) return;
-                                                $.ajax({ url: '/api/reports/bin-adjustments/' + o.data.adjustmentId, method: 'DELETE' })
-                                                    .done(function () {
-                                                        o.component.refresh();
-                                                        binGrid.refresh();
-                                                    });
-                                            })
-                                            .appendTo(c);
-                                    }
-                                }
-                            ]
-                        }).appendTo(container);
-                    }
-                },
-                showBorders: true,
-                filterRow: { visible: true },
-                headerFilter: { visible: true },
-                allowColumnReordering: true,
-                allowColumnResizing: true,
-                columnAutoWidth: true,
-                paging: { pageSize: 50 },
-                export: { enabled: false }
-            }).dxDataGrid('instance');
-        }
-
-        // ===== True Up / Adjust modal =====
-        function currentBalanceFor(bin, commodity) {
-            var row = binRowsCache.find(function (r) {
-                return r.bin === bin && (r.commodity || '') === (commodity || '');
-            });
-            return row ? row.onHandLbs : 0;
-        }
-
-        function fillSelect($sel, items, selected, emptyLabel) {
-            $sel.empty();
-            if (emptyLabel !== undefined) $sel.append($('<option>').val('').text(emptyLabel));
-            // Keep a value that's no longer in master data selectable so a
-            // retired bin/commodity row can still be trued up.
-            var all = items.slice();
-            if (selected && all.indexOf(selected) === -1) all.unshift(selected);
-            all.forEach(function (name) {
-                $sel.append($('<option>').val(name).text(name).prop('selected', name === selected));
-            });
-        }
-
-        function syncBinAdjModal() {
-            var mode = $('input[name="binAdjMode"]:checked').val();
-            $('#binAdjAmountLabel').text(mode === 'trueup' ? 'Measured amount on hand (lbs)' : 'Adjustment amount (lbs, +/-)');
-            $('#binAdjAmountHint').text(mode === 'trueup'
-                ? 'The difference from the computed balance is recorded as an adjustment.'
-                : 'Positive adds to the bin, negative deducts (e.g. -1500 for shrinkage).');
-            var bin = $('#binAdjBin').val();
-            var commodity = $('#binAdjCommodity').val();
-            $('#binAdjCurrent').text(bin
-                ? 'Computed balance for ' + bin + (commodity ? ' / ' + commodity : '') + ': ' + fmtLbs(currentBalanceFor(bin, commodity)) + ' lbs'
-                : '');
-        }
-
-        function openBinAdjModal(row) {
-            fillSelect($('#binAdjBin'), binsList, row ? row.bin : null);
-            fillSelect($('#binAdjCommodity'), commoditiesList, row ? (row.commodity || '') : '', '— None —');
-            $('#binAdjModeTrueUp').prop('checked', true);
-            $('#binAdjAmount').val('');
-            $('#binAdjNote').val('');
-            $('#binAdjError').hide();
-            $('#binAdjTitle').text(row ? ('True Up — ' + row.bin) : 'Bin Adjustment');
-            syncBinAdjModal();
-            new bootstrap.Modal('#binAdjModal').show();
-        }
-
-        $('input[name="binAdjMode"], #binAdjBin, #binAdjCommodity').on('change', syncBinAdjModal);
-
-        $('#binAdjSaveBtn').on('click', function () {
-            var bin = $('#binAdjBin').val();
-            var amountRaw = $('#binAdjAmount').val();
-            var amount = parseInt(amountRaw, 10);
-            var mode = $('input[name="binAdjMode"]:checked').val();
-            var $err = $('#binAdjError');
-            if (!bin) { $err.text('Pick a bin.').show(); return; }
-            if (amountRaw === '' || isNaN(amount)) { $err.text('Enter an amount in pounds.').show(); return; }
-            if (mode === 'adjust' && amount === 0) { $err.text('An adjustment of 0 lbs does nothing.').show(); return; }
-            var $btn = $(this).prop('disabled', true);
-            $.ajax({
-                url: '/api/reports/bin-adjustments',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({
-                    bin: bin,
-                    commodity: $('#binAdjCommodity').val() || null,
-                    mode: mode,
-                    amountLbs: amount,
-                    note: $('#binAdjNote').val() || null
-                })
-            }).done(function () {
-                bootstrap.Modal.getInstance(document.getElementById('binAdjModal')).hide();
-                if (binGrid) binGrid.refresh();
-            }).fail(function (xhr) {
-                var msg = 'Save failed.';
-                try { msg = JSON.parse(xhr.responseText).message || msg; } catch (e) { }
-                $err.text(msg).show();
-            }).always(function () {
-                $btn.prop('disabled', false);
-            });
-        });
-    });
-</script>
-</text>
-}
 }

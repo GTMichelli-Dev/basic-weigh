@@ -17,10 +17,23 @@ public class CustomField
     [Display(Name = "Field Name")]
     public string Name { get; set; } = "";
 
-    // Text, Integer, Real
+    // Text, Integer, Real, Formula
     [StringLength(10)]
     [Display(Name = "Type")]
     public string FieldType { get; set; } = "Text";
+
+    /// <summary>
+    /// Formula fields only: an arithmetic expression over the ticket's
+    /// numeric fields, e.g. "NetWeight / 56" or "[Price] * NetTons".
+    /// Built-ins: NetWeight, GrossWeight, TareWeight, InWeight, OutWeight,
+    /// NetTons. Custom numeric fields by name — [brackets] when the name has
+    /// spaces. Operators + - * / ( ), functions round(x,n), abs, min, max.
+    /// The result is computed and stored whenever the ticket is saved
+    /// (FormulaFields.RecomputeAndSave); a missing referenced value leaves
+    /// the result blank.
+    /// </summary>
+    [StringLength(500)]
+    public string? Formula { get; set; }
 
     /// <summary>When true the weigh forms refuse to save without a value.</summary>
     [Display(Name = "Required")]
@@ -77,9 +90,11 @@ public class CustomField
 
     /// <summary>True when this field is allowed to prompt at the kiosk.
     /// A sub-field stays eligible even while its choice map is empty — the
-    /// kiosk auto-skips a prompt whose list resolves to no items.</summary>
+    /// kiosk auto-skips a prompt whose list resolves to no items. Formula
+    /// fields are computed, never prompted.</summary>
     public bool IsKioskEligible() =>
-        FieldType != "Text" || ParentField != null || GetListValues().Count > 0;
+        FieldType != "Formula"
+        && (FieldType != "Text" || ParentField != null || GetListValues().Count > 0);
 
     /// <summary>ListValues split into clean entries (empty for free-text fields).</summary>
     public List<string> GetListValues() =>

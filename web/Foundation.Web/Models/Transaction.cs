@@ -48,6 +48,13 @@ public class Transaction
     [StringLength(50)]
     public string? Bin { get; set; }
 
+    /// <summary>Set on a weighed bin-to-bin transfer: the destination bin. The
+    /// ticket's net weight leaves Bin and lands here regardless of which weigh
+    /// came first. Null for ordinary in/out tickets.</summary>
+    [StringLength(50)]
+    [Display(Name = "Transfer To")]
+    public string? TransferToBin { get; set; }
+
     [StringLength(500)]
     public string? Notes { get; set; }
 

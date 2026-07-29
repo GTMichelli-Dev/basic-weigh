@@ -1,0 +1,584 @@
+@{
+    ViewData["Title"] = "Bin Report";
+    var binCommodityLock = (bool)(ViewBag.BinCommodityLock ?? false);
+}
+
+<style>
+    .report-controls {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+    }
+    .report-controls .ctrl-label {
+        font-weight: 600;
+        white-space: nowrap;
+        font-size: 0.85em;
+    }
+</style>
+
+<h3>Bin Report</h3>
+
+<div class="report-controls">
+    <span class="ctrl-label">As Of:</span>
+    <div id="binAsOfDate"></div>
+    <div id="binAddAdjustmentBtn" class="ms-2"></div>
+    <div id="binTransferBtn" class="ms-2"></div>
+    <div id="binSetCommodityBtn" class="ms-2"></div>
+    <span class="ctrl-label ms-auto text-muted" style="font-weight:400;">
+        Loads in add to a bin, loads out deduct; true-ups reconcile shrinkage. Expand a row for its history.
+    </span>
+</div>
+<div id="binInventoryGrid"></div>
+
+<!-- Bin adjustment / true-up modal -->
+<div class="modal fade" id="binAdjModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="binAdjTitle">Bin Adjustment</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-2">
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label mb-0 small">Bin</label>
+                        <select id="binAdjBin" class="form-select form-select-sm"></select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label mb-0 small">Commodity</label>
+                        <select id="binAdjCommodity" class="form-select form-select-sm"></select>
+                    </div>
+                </div>
+                <div class="mb-2 small" id="binAdjCurrent" style="color: var(--bw-text-muted);"></div>
+                <div class="mb-2">
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="binAdjMode" id="binAdjModeTrueUp" value="trueup" checked />
+                        <label class="form-check-label small" for="binAdjModeTrueUp"><strong>True Up</strong> — set to measured total</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="radio" name="binAdjMode" id="binAdjModeAdjust" value="adjust" />
+                        <label class="form-check-label small" for="binAdjModeAdjust"><strong>Adjust</strong> — add/subtract an amount</label>
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 small" id="binAdjAmountLabel">Measured amount on hand (lbs)</label>
+                    <input type="number" step="1" id="binAdjAmount" class="form-control form-control-sm" />
+                    <div class="form-text small" id="binAdjAmountHint">
+                        The difference from the computed balance is recorded as an adjustment.
+                    </div>
+                </div>
+                <div class="mb-1">
+                    <label class="form-label mb-0 small">Note</label>
+                    <input type="text" maxlength="200" id="binAdjNote" class="form-control form-control-sm"
+                           placeholder="e.g. Measured after drying — shrinkage" />
+                </div>
+                <div id="binAdjError" class="small text-danger mt-1" style="display:none;"></div>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="binAdjSaveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Bin transfer modal: book transfer without a weighment. A weighed transfer
+     is an ordinary ticket instead: Weigh In with Bin = source and Transfer To
+     = destination, then weigh out as usual. -->
+<div class="modal fade" id="binXferModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="binXferTitle">Bin Transfer</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-2">
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label mb-0 small">From Bin</label>
+                        <select id="binXferFrom" class="form-select form-select-sm"></select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label mb-0 small">To Bin</label>
+                        <select id="binXferTo" class="form-select form-select-sm"></select>
+                    </div>
+                </div>
+                <div class="mb-2 small" id="binXferInfo" style="color: var(--bw-text-muted);"></div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 small">Amount to transfer (lbs)</label>
+                    <input type="number" step="1" min="1" id="binXferAmount" class="form-control form-control-sm" />
+                    <div class="form-text small">
+                        The commodity travels with the grain — it deducts from the
+                        source bin and adds to the destination as one linked entry.
+                        To move it as a <strong>weighed</strong> transaction, run the truck
+                        over the scale instead: Weigh In with Bin = source and
+                        Transfer To = destination.
+                    </div>
+                </div>
+                <div class="mb-1">
+                    <label class="form-label mb-0 small">Note</label>
+                    <input type="text" maxlength="200" id="binXferNote" class="form-control form-control-sm"
+                           placeholder="e.g. Consolidating before harvest" />
+                </div>
+                <div id="binXferError" class="small text-danger mt-1" style="display:none;"></div>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="binXferSaveBtn">Transfer</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Set commodity modal: assign what an (empty) bin holds, or clear it -->
+<div class="modal fade" id="binCommodModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="binCommodTitle">Set Bin Commodity</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-2">
+                <div class="mb-2">
+                    <label class="form-label mb-0 small">Bin</label>
+                    <select id="binCommodBin" class="form-select form-select-sm"></select>
+                </div>
+                <div class="mb-2 small" id="binCommodCurrent" style="color: var(--bw-text-muted);"></div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 small">Commodity</label>
+                    <select id="binCommodCommodity" class="form-select form-select-sm"></select>
+                    <div class="form-text small">
+                        Once a bin is empty (zero balance) you can point it at a new
+                        commodity — or pick Empty so it takes whatever arrives first.
+                        Tickets that don't match the assignment are rejected.
+                    </div>
+                </div>
+                <div id="binCommodError" class="small text-danger mt-1" style="display:none;"></div>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="binCommodSaveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    $(function () {
+        var binGrid = null;
+        var binAsOf = new Date();    // inclusive as-of date (display TZ)
+        var binRowsCache = [];       // last-loaded rows, for the modals' info lines
+        var binsList = [];           // active bin names (modal dropdowns)
+        var commoditiesList = [];    // active commodity names (modal dropdowns)
+        var binCommodityLock = @(binCommodityLock ? "true" : "false");
+
+        function fmtLbs(n) { return (n == null ? 0 : Number(n)).toLocaleString('en-US'); }
+        function asOfParam() { return DevExpress.localization.formatDate(binAsOf, 'yyyy-MM-dd'); }
+
+        $.getJSON('/api/masterdata/bins').done(function (data) {
+            binsList = data.filter(function (b) { return b.active; }).map(function (b) { return b.binName; });
+        });
+        $.getJSON('/api/masterdata/commodities').done(function (data) {
+            commoditiesList = data.filter(function (c) { return c.active; }).map(function (c) { return c.commodityName; });
+        });
+
+        $('#binAsOfDate').dxDateBox({
+            value: binAsOf, type: 'date', displayFormat: 'MM/dd/yyyy', width: 140,
+            onValueChanged: function (e) { binAsOf = e.value; binGrid.refresh(); }
+        });
+
+        $('#binAddAdjustmentBtn').dxButton({
+            icon: 'edit', text: 'True Up / Adjust',
+            hint: 'Record a measured total or a +/- correction for a bin',
+            onClick: function () { openBinAdjModal(null); }
+        });
+
+        $('#binTransferBtn').dxButton({
+            icon: 'arrowright', text: 'Transfer',
+            hint: 'Move grain from one bin to another as one linked entry',
+            onClick: function () { openBinXferModal(null); }
+        });
+
+        $('#binSetCommodityBtn').dxButton({
+            icon: 'tags', text: 'Set Commodity',
+            hint: 'Assign what a bin holds — change it once the bin is back to zero',
+            onClick: function () { openBinCommodModal(null); }
+        });
+
+        binGrid = $('#binInventoryGrid').dxDataGrid({
+            hoverStateEnabled: true,
+            dataSource: new DevExpress.data.CustomStore({
+                key: '__key',
+                load: function () {
+                    return $.getJSON('/api/reports/bin-inventory', { asOfDate: asOfParam() }).then(function (rows) {
+                        rows.forEach(function (r) { r.__key = r.bin + '||' + (r.commodity || ''); });
+                        binRowsCache = rows;
+                        return rows;
+                    });
+                }
+            }),
+            columns: [
+                { dataField: 'bin', caption: 'Bin', sortOrder: 'asc', sortIndex: 0 },
+                { dataField: 'commodity', caption: 'Commodity', sortOrder: 'asc', sortIndex: 1,
+                  calculateDisplayValue: function (r) { return r.commodity || '—'; } },
+                // The bin's assigned commodity (Set Commodity) — what it's
+                // reserved for, even while empty.
+                { dataField: 'assignedCommodity', caption: 'Assigned', width: 120,
+                  calculateDisplayValue: function (r) { return r.assignedCommodity || '—'; } },
+                { dataField: 'loadsIn', caption: 'Loads In', dataType: 'number', width: 100 },
+                { dataField: 'lbsIn', caption: 'In (lbs)', dataType: 'number', format: '#,##0', width: 120 },
+                { dataField: 'loadsOut', caption: 'Loads Out', dataType: 'number', width: 100 },
+                { dataField: 'lbsOut', caption: 'Out (lbs)', dataType: 'number', format: '#,##0', width: 120 },
+                { dataField: 'adjustmentLbs', caption: 'Adjustments (lbs)', dataType: 'number', format: '#,##0', width: 140 },
+                { dataField: 'onHandLbs', caption: 'On Hand (lbs)', dataType: 'number', format: '#,##0', width: 140,
+                  cssClass: 'fw-bold',
+                  cellTemplate: function (container, options) {
+                      $('<span>').text(fmtLbs(options.value))
+                          .css(options.value < 0 ? { color: '#c53030', fontWeight: 'bold' } : { fontWeight: 'bold' })
+                          .appendTo(container);
+                  } },
+                { dataField: 'onHandTons', caption: 'On Hand (tons)', dataType: 'number', format: '#,##0.00', width: 130 },
+                // Reporting unit from the commodity (Edit Tables → Commodities):
+                // corn shows bushels, barley shows CWT, etc. Blank when the
+                // commodity has no unit configured.
+                { dataField: 'onHandUnits', caption: 'On Hand (units)', dataType: 'number', width: 140,
+                  calculateSortValue: 'onHandUnits',
+                  cellTemplate: function (container, options) {
+                      if (options.value == null) { $('<span>').text('—').appendTo(container); return; }
+                      $('<span>').text(Number(options.value).toLocaleString('en-US') + ' ' + (options.data.unitName || ''))
+                          .appendTo(container);
+                  } },
+                {
+                    caption: '', width: 200, allowFiltering: false, allowSorting: false, allowExporting: false,
+                    cellTemplate: function (container, options) {
+                        $('<button type="button" class="grid-action-btn btn btn-sm btn-outline-primary py-0 me-1">True Up</button>')
+                            .on('click', function () { openBinAdjModal(options.data); })
+                            .appendTo(container);
+                        $('<button type="button" class="grid-action-btn btn btn-sm btn-outline-secondary py-0">Commodity</button>')
+                            .attr('title', 'Assign what this bin holds — changeable once it is at zero')
+                            .on('click', function () { openBinCommodModal(options.data); })
+                            .appendTo(container);
+                    }
+                }
+            ],
+            summary: {
+                totalItems: [
+                    { column: 'lbsIn', summaryType: 'sum', valueFormat: '#,##0', displayFormat: 'In: {0} lbs' },
+                    { column: 'lbsOut', summaryType: 'sum', valueFormat: '#,##0', displayFormat: 'Out: {0} lbs' },
+                    { column: 'onHandLbs', summaryType: 'sum', valueFormat: '#,##0', displayFormat: 'On hand: {0} lbs' }
+                ]
+            },
+            masterDetail: {
+                enabled: true,
+                template: function (container, options) {
+                    var row = options.data;
+                    $('<div>').dxDataGrid({
+                        dataSource: new DevExpress.data.CustomStore({
+                            loadMode: 'raw',
+                            load: function () {
+                                return $.getJSON('/api/reports/bin-inventory/detail', {
+                                    bin: row.bin, commodity: row.commodity || '', asOfDate: asOfParam()
+                                });
+                            }
+                        }),
+                        showBorders: true,
+                        columnAutoWidth: true,
+                        paging: { pageSize: 10 },
+                        columns: [
+                            { dataField: 'date', caption: 'Date', dataType: 'datetime', format: 'MM/dd/yyyy hh:mm a', width: 160, sortOrder: 'desc' },
+                            { dataField: 'type', caption: 'Type', width: 110 },
+                            { dataField: 'reference', caption: 'Reference' },
+                            { dataField: 'lbs', caption: 'Change (lbs)', dataType: 'number', width: 130,
+                              cellTemplate: function (c, o) {
+                                  var v = o.value || 0;
+                                  $('<span>').text((v > 0 ? '+' : '') + fmtLbs(v))
+                                      .css({ color: v < 0 ? '#c53030' : '#2f855a', fontWeight: 'bold' })
+                                      .appendTo(c);
+                              } },
+                            {
+                                caption: '', width: 90, allowFiltering: false, allowSorting: false,
+                                cellTemplate: function (c, o) {
+                                    // Only manual adjustments can be removed here — tickets
+                                    // are corrected on the Completed page.
+                                    if (o.data.adjustmentId == null) return;
+                                    $('<button type="button" class="btn btn-sm btn-outline-danger py-0">Remove</button>')
+                                        .on('click', function () {
+                                            if (!confirm('Remove this adjustment?')) return;
+                                            $.ajax({ url: '/api/reports/bin-adjustments/' + o.data.adjustmentId, method: 'DELETE' })
+                                                .done(function () {
+                                                    o.component.refresh();
+                                                    binGrid.refresh();
+                                                });
+                                        })
+                                        .appendTo(c);
+                                }
+                            }
+                        ]
+                    }).appendTo(container);
+                }
+            },
+            showBorders: true,
+            filterRow: { visible: true },
+            headerFilter: { visible: true },
+            allowColumnReordering: true,
+            allowColumnResizing: true,
+            columnAutoWidth: true,
+            paging: { pageSize: 50 },
+            export: { enabled: false }
+        }).dxDataGrid('instance');
+
+        // ===== True Up / Adjust modal =====
+        function currentBalanceFor(bin, commodity) {
+            var row = binRowsCache.find(function (r) {
+                return r.bin === bin && (r.commodity || '') === (commodity || '');
+            });
+            return row ? row.onHandLbs : 0;
+        }
+
+        function fillSelect($sel, items, selected, emptyLabel) {
+            $sel.empty();
+            if (emptyLabel !== undefined) $sel.append($('<option>').val('').text(emptyLabel));
+            // Keep a value that's no longer in master data selectable so a
+            // retired bin/commodity row can still be trued up.
+            var all = items.slice();
+            if (selected && all.indexOf(selected) === -1) all.unshift(selected);
+            all.forEach(function (name) {
+                $sel.append($('<option>').val(name).text(name).prop('selected', name === selected));
+            });
+        }
+
+        function syncBinAdjModal() {
+            var mode = $('input[name="binAdjMode"]:checked').val();
+            $('#binAdjAmountLabel').text(mode === 'trueup' ? 'Measured amount on hand (lbs)' : 'Adjustment amount (lbs, +/-)');
+            $('#binAdjAmountHint').text(mode === 'trueup'
+                ? 'The difference from the computed balance is recorded as an adjustment.'
+                : 'Positive adds to the bin, negative deducts (e.g. -1500 for shrinkage).');
+            var bin = $('#binAdjBin').val();
+            var commodity = $('#binAdjCommodity').val();
+            $('#binAdjCurrent').text(bin
+                ? 'Computed balance for ' + bin + (commodity ? ' / ' + commodity : '') + ': ' + fmtLbs(currentBalanceFor(bin, commodity)) + ' lbs'
+                : '');
+        }
+
+        function openBinAdjModal(row) {
+            fillSelect($('#binAdjBin'), binsList, row ? row.bin : null);
+            fillSelect($('#binAdjCommodity'), commoditiesList, row ? (row.commodity || '') : '', '— None —');
+            $('#binAdjModeTrueUp').prop('checked', true);
+            $('#binAdjAmount').val('');
+            $('#binAdjNote').val('');
+            $('#binAdjError').hide();
+            $('#binAdjTitle').text(row ? ('True Up — ' + row.bin) : 'Bin Adjustment');
+            syncBinAdjModal();
+            new bootstrap.Modal('#binAdjModal').show();
+        }
+
+        $('input[name="binAdjMode"], #binAdjBin, #binAdjCommodity').on('change', syncBinAdjModal);
+
+        $('#binAdjSaveBtn').on('click', function () {
+            var bin = $('#binAdjBin').val();
+            var amountRaw = $('#binAdjAmount').val();
+            var amount = parseInt(amountRaw, 10);
+            var mode = $('input[name="binAdjMode"]:checked').val();
+            var $err = $('#binAdjError');
+            if (!bin) { $err.text('Pick a bin.').show(); return; }
+            if (amountRaw === '' || isNaN(amount)) { $err.text('Enter an amount in pounds.').show(); return; }
+            if (mode === 'adjust' && amount === 0) { $err.text('An adjustment of 0 lbs does nothing.').show(); return; }
+            var $btn = $(this).prop('disabled', true);
+            $.ajax({
+                url: '/api/reports/bin-adjustments',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    bin: bin,
+                    commodity: $('#binAdjCommodity').val() || null,
+                    mode: mode,
+                    amountLbs: amount,
+                    note: $('#binAdjNote').val() || null
+                })
+            }).done(function () {
+                bootstrap.Modal.getInstance(document.getElementById('binAdjModal')).hide();
+                if (binGrid) binGrid.refresh();
+            }).fail(function (xhr) {
+                var msg = 'Save failed.';
+                try { msg = JSON.parse(xhr.responseText).message || msg; } catch (e) { }
+                $err.text(msg).show();
+            }).always(function () {
+                $btn.prop('disabled', false);
+            });
+        });
+
+        // ===== Bin Transfer modal =====
+        // Moves grain between bins as one linked pair of adjustments (server
+        // endpoint /api/reports/bin-transfers). The commodity is whatever the
+        // source bin holds; with Lock Bin to Commodity on, the To list only
+        // offers empty bins or bins holding the same commodity.
+
+        /// What a bin currently holds, from the loaded report rows:
+        /// { commodity, lbs } of its largest positive balance; falls back to
+        /// the assigned commodity (at 0 lbs) so a reserved-but-empty bin
+        /// still counts as spoken-for. Null when neither applies.
+        function heldFor(bin) {
+            var best = null;
+            binRowsCache.forEach(function (r) {
+                if (r.bin === bin && r.commodity && r.onHandLbs > 0
+                    && (!best || r.onHandLbs > best.lbs))
+                    best = { commodity: r.commodity, lbs: r.onHandLbs };
+            });
+            if (!best) {
+                var assigned = assignedFor(bin);
+                if (assigned) return { commodity: assigned, lbs: 0 };
+            }
+            return best;
+        }
+
+        /// The bin's assigned commodity from the loaded report rows, or null.
+        function assignedFor(bin) {
+            var row = binRowsCache.find(function (r) { return r.bin === bin && r.assignedCommodity; });
+            return row ? row.assignedCommodity : null;
+        }
+
+        function binLabel(name) {
+            var h = heldFor(name);
+            return h ? name + ' (' + h.commodity + ')' : name;
+        }
+
+        function syncBinXferModal() {
+            var from = $('#binXferFrom').val();
+            var held = from ? heldFor(from) : null;
+
+            // Rebuild the To list: everything but the source; lock mode also
+            // drops bins holding a different commodity.
+            var current = $('#binXferTo').val();
+            var $to = $('#binXferTo').empty();
+            $to.append($('<option>').val('').text('-- Select --'));
+            binsList.forEach(function (name) {
+                if (name === from) return;
+                var h = heldFor(name);
+                if (binCommodityLock && held && h && h.commodity !== held.commodity) return;
+                $to.append($('<option>').val(name).text(binLabel(name)).prop('selected', name === current));
+            });
+
+            $('#binXferInfo').text(!from ? ''
+                : held && held.lbs > 0
+                    ? 'Moving ' + held.commodity + ' — ' + from + ' has ' + fmtLbs(held.lbs) + ' lbs on hand'
+                    : from + ' has nothing to transfer.');
+        }
+
+        function openBinXferModal(row) {
+            var $from = $('#binXferFrom').empty();
+            $from.append($('<option>').val('').text('-- Select --'));
+            binsList.forEach(function (name) {
+                // Only bins actually holding something can be a source.
+                var h = heldFor(name);
+                if (!h || h.lbs <= 0) return;
+                $from.append($('<option>').val(name).text(binLabel(name))
+                    .prop('selected', !!row && row.bin === name));
+            });
+            $('#binXferAmount').val('');
+            $('#binXferNote').val('');
+            $('#binXferError').hide();
+            syncBinXferModal();
+            new bootstrap.Modal('#binXferModal').show();
+        }
+
+        $('#binXferFrom').on('change', syncBinXferModal);
+
+        $('#binXferSaveBtn').on('click', function () {
+            var from = $('#binXferFrom').val();
+            var to = $('#binXferTo').val();
+            var amountRaw = $('#binXferAmount').val();
+            var amount = parseInt(amountRaw, 10);
+            var $err = $('#binXferError');
+            if (!from) { $err.text('Pick the bin to transfer from.').show(); return; }
+            if (!to) { $err.text('Pick the bin to transfer to.').show(); return; }
+            if (amountRaw === '' || isNaN(amount) || amount <= 0) { $err.text('Enter the pounds to transfer.').show(); return; }
+            var held = heldFor(from);
+            if (held && amount > held.lbs
+                && !confirm('That is more than the ' + fmtLbs(held.lbs) + ' lbs on hand in ' + from + ' — the bin will go negative. Continue?')) return;
+            var $btn = $(this).prop('disabled', true);
+            $.ajax({
+                url: '/api/reports/bin-transfers',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    fromBin: from,
+                    toBin: to,
+                    amountLbs: amount,
+                    note: $('#binXferNote').val() || null
+                })
+            }).done(function () {
+                bootstrap.Modal.getInstance(document.getElementById('binXferModal')).hide();
+                if (binGrid) binGrid.refresh();
+            }).fail(function (xhr) {
+                var msg = 'Transfer failed.';
+                try { msg = JSON.parse(xhr.responseText).message || msg; } catch (e) { }
+                $err.text(msg).show();
+            }).always(function () {
+                $btn.prop('disabled', false);
+            });
+        });
+
+        // ===== Set Commodity modal =====
+        // Assign what a bin is designated to hold (server endpoint
+        // /api/reports/bin-commodity). The server only allows a change while
+        // the bin's computed balance is zero, so hauling it empty or truing
+        // up to zero is what unlocks the switch.
+
+        function syncBinCommodModal() {
+            var bin = $('#binCommodBin').val();
+            if (!bin) { $('#binCommodCurrent').text(''); return; }
+            var held = null;
+            binRowsCache.forEach(function (r) {
+                if (r.bin === bin && r.commodity && r.onHandLbs > 0 && (!held || r.onHandLbs > held.lbs))
+                    held = { commodity: r.commodity, lbs: r.onHandLbs };
+            });
+            var assigned = assignedFor(bin);
+            var parts = [];
+            parts.push(held
+                ? bin + ' holds ' + fmtLbs(held.lbs) + ' lbs of ' + held.commodity + ' — empty or true up to zero to change its commodity.'
+                : bin + ' is at zero — it can take a new commodity.');
+            parts.push('Currently assigned: ' + (assigned || 'none'));
+            $('#binCommodCurrent').text(parts.join(' '));
+            fillSelect($('#binCommodCommodity'), commoditiesList, assigned || '', '— Empty (no commodity) —');
+        }
+
+        function openBinCommodModal(row) {
+            fillSelect($('#binCommodBin'), binsList, row ? row.bin : null, '-- Select --');
+            $('#binCommodError').hide();
+            $('#binCommodTitle').text(row ? ('Set Commodity — ' + row.bin) : 'Set Bin Commodity');
+            syncBinCommodModal();
+            new bootstrap.Modal('#binCommodModal').show();
+        }
+
+        $('#binCommodBin').on('change', syncBinCommodModal);
+
+        $('#binCommodSaveBtn').on('click', function () {
+            var bin = $('#binCommodBin').val();
+            var $err = $('#binCommodError');
+            if (!bin) { $err.text('Pick a bin.').show(); return; }
+            var $btn = $(this).prop('disabled', true);
+            $.ajax({
+                url: '/api/reports/bin-commodity',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    bin: bin,
+                    commodity: $('#binCommodCommodity').val() || null
+                })
+            }).done(function () {
+                bootstrap.Modal.getInstance(document.getElementById('binCommodModal')).hide();
+                if (binGrid) binGrid.refresh();
+            }).fail(function (xhr) {
+                var msg = 'Save failed.';
+                try { msg = JSON.parse(xhr.responseText).message || msg; } catch (e) { }
+                $err.text(msg).show();
+            }).always(function () {
+                $btn.prop('disabled', false);
+            });
+        });
+    });
+</script>
+}

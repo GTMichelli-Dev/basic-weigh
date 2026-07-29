@@ -342,12 +342,30 @@
                                         Bins
                                     </a>
                                 </div>
-                                <div class="col-4" id="binRequiredSection" style="display: @(Model.UseBinInventory ? "block" : "none");">
+                                <div class="col-3" id="binRequiredSection" style="display: @(Model.UseBinInventory ? "block" : "none");">
                                     <label asp-for="BinRequired" class="form-label mb-0 small"></label>
                                     <select asp-for="BinRequired" class="form-select form-select-sm" id="BinRequired"
                                             title="Required blocks saving a ticket without a bin and removes Skip from the kiosk bin prompt">
                                         <option value="false">Optional</option>
                                         <option value="true">Required</option>
+                                    </select>
+                                </div>
+                                <div class="col-3" id="binLockSection" style="display: @(Model.UseBinInventory ? "block" : "none");">
+                                    <label asp-for="BinCommodityLock" class="form-label mb-0 small"></label>
+                                    <select asp-for="BinCommodityLock" class="form-select form-select-sm" id="BinCommodityLock"
+                                            title="A bin holding grain only accepts that commodity — picking the bin auto-sets it on the ticket. The bin frees up when it's emptied or trued up to zero.">
+                                        <option value="false">No</option>
+                                        <option value="true">Yes</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-4">
+                                    <label asp-for="DefaultReportUnit" class="form-label mb-0 small"></label>
+                                    <select asp-for="DefaultReportUnit" class="form-select form-select-sm"
+                                            title="Report unit columns use each commodity's Reporting Unit (Edit Tables → Commodities); commodities without one fall back to this">
+                                        <option value="lbs">Pounds (lbs)</option>
+                                        <option value="kg">Kilograms (kg)</option>
                                     </select>
                                 </div>
                             </div>
@@ -960,6 +978,7 @@
                             <option value="Text">Text</option>
                             <option value="Integer">Integer</option>
                             <option value="Real">Decimal</option>
+                            <option value="Formula">Formula</option>
                         </select>
                     </div>
                     <div class="col-4">
@@ -998,12 +1017,27 @@
                         its own tab there.
                     </div>
                 </div>
+                <div class="mb-2" id="cfFormulaSection" style="display:none;">
+                    <label class="form-label mb-0 small">Formula</label>
+                    <input type="text" id="cfFormula" class="form-control form-control-sm" maxlength="500"
+                           placeholder="e.g. NetWeight / 56  or  [Price] * NetTons" />
+                    <div class="form-text small">
+                        Computed automatically whenever the ticket is saved and shown in
+                        grids, reports, and printed tickets. Reference
+                        <code>NetWeight</code>, <code>GrossWeight</code>, <code>TareWeight</code>,
+                        <code>InWeight</code>, <code>OutWeight</code>, <code>NetTons</code>,
+                        or any numeric custom field by name — use <code>[brackets]</code>
+                        when the name has spaces. Operators <code>+ - * / ( )</code> and
+                        functions <code>round(x, n)</code>, <code>abs</code>, <code>min</code>,
+                        <code>max</code>. A missing referenced value leaves the result blank.
+                    </div>
+                </div>
                 <div class="row g-2 mb-2" id="cfNumberSection" style="display:none;">
-                    <div class="col-4">
+                    <div class="col-4" id="cfMinCol">
                         <label class="form-label mb-0 small">Min <span class="text-muted">(optional)</span></label>
                         <input type="number" id="cfMinValue" class="form-control form-control-sm" step="any" />
                     </div>
-                    <div class="col-4">
+                    <div class="col-4" id="cfMaxCol">
                         <label class="form-label mb-0 small">Max <span class="text-muted">(optional)</span></label>
                         <input type="number" id="cfMaxValue" class="form-control form-control-sm" step="any" />
                     </div>
@@ -1254,6 +1288,7 @@
             var t = f.fieldType === 'Real' ? 'Decimal' : f.fieldType;
             if (f.fieldType === 'Text' && f.parentField) t += ' (List under ' + esc(parentLabel(f.parentField)) + ')';
             else if (f.fieldType === 'Text' && f.listValues) t += ' (List)';
+            else if (f.fieldType === 'Formula' && f.formula) t += ': ' + esc(f.formula);
             return t;
         }
 
@@ -1264,15 +1299,23 @@
         // Edit Tables, so the flat textarea is hidden for it.
         function syncCfTypeSections() {
             var t = document.getElementById('cfType').value;
+            var isFormula = t === 'Formula';
             var hasParent = document.getElementById('cfParentField').value !== '';
             document.getElementById('cfParentSection').style.display = t === 'Text' ? 'block' : 'none';
             document.getElementById('cfListSection').style.display = (t === 'Text' && !hasParent) ? 'block' : 'none';
             document.getElementById('cfParentValuesHint').style.display = (t === 'Text' && hasParent) ? 'block' : 'none';
+            document.getElementById('cfFormulaSection').style.display = isFormula ? 'block' : 'none';
+            // Formula: only Decimals applies (no min/max, nothing typed in).
             document.getElementById('cfNumberSection').style.display = t === 'Text' ? 'none' : 'flex';
-            document.getElementById('cfPrecisionCol').style.display = t === 'Real' ? 'block' : 'none';
+            document.getElementById('cfMinCol').style.display = isFormula ? 'none' : 'block';
+            document.getElementById('cfMaxCol').style.display = isFormula ? 'none' : 'block';
+            document.getElementById('cfPrecisionCol').style.display = (t === 'Real' || isFormula) ? 'block' : 'none';
+            var req = document.getElementById('cfRequired');
+            req.disabled = isFormula;
+            if (isFormula) req.value = 'false';
             var kiosk = document.getElementById('cfPromptAtKiosk');
-            var eligible = t !== 'Text' || hasParent
-                || document.getElementById('cfListValues').value.trim() !== '';
+            var eligible = !isFormula && (t !== 'Text' || hasParent
+                || document.getElementById('cfListValues').value.trim() !== '');
             kiosk.disabled = !eligible;
             if (!eligible) kiosk.checked = false;
         }
@@ -1342,6 +1385,7 @@
             document.getElementById('cfShowOnTicket').checked = field ? field.showOnTicket : true;
             document.getElementById('cfActive').checked = field ? field.active : true;
             document.getElementById('cfListValues').value = field && field.listValues ? field.listValues : '';
+            document.getElementById('cfFormula').value = field && field.formula ? field.formula : '';
             fillCfParentOptions(field ? field.parentField : null, field ? field.id : null);
             document.getElementById('cfMinValue').value = field && field.minValue != null ? field.minValue : '';
             document.getElementById('cfMaxValue').value = field && field.maxValue != null ? field.maxValue : '';
@@ -1371,6 +1415,7 @@
                 active: document.getElementById('cfActive').checked,
                 listValues: document.getElementById('cfListValues').value || null,
                 parentField: document.getElementById('cfParentField').value || null,
+                formula: document.getElementById('cfFormula').value.trim() || null,
                 minValue: document.getElementById('cfMinValue').value === '' ? null : parseFloat(document.getElementById('cfMinValue').value),
                 maxValue: document.getElementById('cfMaxValue').value === '' ? null : parseFloat(document.getElementById('cfMaxValue').value),
                 precision: document.getElementById('cfPrecision').value === '' ? null : parseInt(document.getElementById('cfPrecision').value),
@@ -1617,6 +1662,7 @@
         var on = this.value === 'true';
         document.getElementById('binManageSection').style.display = on ? 'flex' : 'none';
         document.getElementById('binRequiredSection').style.display = on ? 'block' : 'none';
+        document.getElementById('binLockSection').style.display = on ? 'block' : 'none';
         var orderRow = document.getElementById('binFieldOrderRow');
         if (orderRow) orderRow.style.display = on ? 'table-row' : 'none';
         var promptRow = document.getElementById('binPromptRow');

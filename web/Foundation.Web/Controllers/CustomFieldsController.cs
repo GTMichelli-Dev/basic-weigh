@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Foundation.Web.Data;
 using Foundation.Web.Models;
+using Foundation.Web.Services;
 
 namespace Foundation.Web.Controllers;
 
@@ -9,7 +10,11 @@ namespace Foundation.Web.Controllers;
 /// </summary>
 public class CustomFieldsController : Controller
 {
-    private static readonly string[] ValidTypes = { "Text", "Integer", "Real" };
+    private static readonly string[] ValidTypes = { "Text", "Integer", "Real", "Formula" };
+
+    /// <summary>Ticket built-ins a formula can reference.</summary>
+    private static readonly string[] FormulaBuiltins =
+        { "NetWeight", "GrossWeight", "TareWeight", "InWeight", "OutWeight", "NetTons" };
 
     /// <summary>Standard fields a sub-field can cascade under (their form
     /// input name doubles as the ParentField key).</summary>
@@ -32,7 +37,7 @@ public class CustomFieldsController : Controller
         return Json(fields.Select(f => new
         {
             f.Id, f.Name, f.FieldType, f.Required, f.Active, f.ShowOnTicket, f.SortOrder,
-            f.ListValues, f.MinValue, f.MaxValue, f.Precision, f.PromptAtKiosk, f.ParentField
+            f.ListValues, f.MinValue, f.MaxValue, f.Precision, f.PromptAtKiosk, f.ParentField, f.Formula
         }));
     }
 
@@ -49,6 +54,8 @@ public class CustomFieldsController : Controller
         Normalize(field);
         _db.CustomFields.Add(field);
         _db.SaveChanges();
+        // A new formula applies to history too, not just tickets saved later.
+        if (field.FieldType == "Formula") FormulaFields.RecomputeAll(_db);
         return Json(field);
     }
 
@@ -88,8 +95,13 @@ public class CustomFieldsController : Controller
         existing.Precision = field.Precision;
         existing.PromptAtKiosk = field.PromptAtKiosk;
         existing.ParentField = field.ParentField;
+        existing.Formula = field.Formula;
         if (!existing.IsKioskEligible()) existing.PromptAtKiosk = false;
         _db.SaveChanges();
+        // Any definition change can shift formula results (edited formula,
+        // renamed/deactivated referenced field) — re-sync stored history.
+        // No-op inside when no formula fields exist.
+        FormulaFields.RecomputeAll(_db);
         return Json(existing);
     }
 
@@ -143,6 +155,8 @@ public class CustomFieldsController : Controller
         var valueCount = _db.TransactionCustomValues.Count(v => v.CustomFieldId == id);
         _db.CustomFields.Remove(existing);
         _db.SaveChanges();
+        // Formulas referencing the deleted field now resolve to blank — re-sync.
+        FormulaFields.RecomputeAll(_db);
         return Json(new { success = true, deletedValues = valueCount });
     }
 
@@ -336,7 +350,7 @@ public class CustomFieldsController : Controller
         return Json(new { success = true, count = values.Count });
     }
 
-    private static string? Validate(CustomField field)
+    private string? Validate(CustomField field)
     {
         if (string.IsNullOrWhiteSpace(field.Name)) return "Field name is required.";
         if (field.Name.Trim().Length > 50) return "Field name must be 50 characters or fewer.";
@@ -353,6 +367,19 @@ public class CustomFieldsController : Controller
             if (string.Join("\n", values).Length > 4000)
                 return "Dropdown list is too long (4000 characters max).";
         }
+        if (field.FieldType == "Formula")
+        {
+            if (string.IsNullOrWhiteSpace(field.Formula))
+                return "A formula is required, e.g. NetWeight / 2000 or [Price] * NetTons.";
+            var numericNames = _db.CustomFields
+                .Where(f => f.FieldType == "Integer" || f.FieldType == "Real" || f.FieldType == "Formula")
+                .Select(f => f.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            bool Exists(string name) =>
+                FormulaBuiltins.Contains(name, StringComparer.OrdinalIgnoreCase) || numericNames.Contains(name);
+            var error = FormulaEvaluator.Validate(field.Formula.Trim(), Exists);
+            if (error != null) return error;
+        }
         return null;
     }
 
@@ -368,12 +395,24 @@ public class CustomFieldsController : Controller
             field.MaxValue = null;
             field.Precision = null;
         }
+        else if (field.FieldType == "Formula")
+        {
+            // Computed field: no dropdown, no cascade, no min/max, never
+            // required (there's nothing to enter), never prompted anywhere.
+            field.Formula = field.Formula?.Trim();
+            field.ListValues = null;
+            field.ParentField = null;
+            field.MinValue = null;
+            field.MaxValue = null;
+            field.Required = false;
+        }
         else
         {
             field.ListValues = null;
             field.ParentField = null; // cascading applies to text dropdowns only
             if (field.FieldType == "Integer") field.Precision = null;
         }
+        if (field.FieldType != "Formula") field.Formula = null;
         // Kiosk prompting requires a constrained input.
         if (!field.IsKioskEligible()) field.PromptAtKiosk = false;
     }

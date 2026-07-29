@@ -1,0 +1,120 @@
+@* Lock Bin to Commodity behavior for the weigh forms (Weigh In / Weigh Out /
+   Edit / Basic Ticket). Bin options rendered by _TicketFieldSlot carry
+   data-commodity = the bin's current contents (Setup → Options → Lock Bin to
+   Commodity; empty when the feature is off or the bin holds nothing). Two-way:
+     - picking a holding bin auto-sets the Commodity select
+     - picking a commodity filters the bin list to bins that are empty or
+       hold that commodity (a mismatched bin already picked is cleared;
+       on initial page load a stored historical bin is kept instead)
+   The server rejects a mismatched commodity on save either way — this just
+   keeps the form honest up front. *@
+<script>
+    (function () {
+        var binEl = document.querySelector('select[name="Bin"]');
+        var commodityEl = document.querySelector('select[name="Commodity"]');
+        if (!binEl || !commodityEl) return;
+        if (!binEl.querySelector('option[data-commodity]:not([data-commodity=""])')) return;
+
+        // Snapshot every bin option (value, "(Corn)"-annotated label, held
+        // commodity) — the fallback list when no commodity is selected.
+        var allBins = Array.from(binEl.options)
+            .filter(function (o) { return o.value !== ''; })
+            .map(function (o) { return { value: o.value, label: o.text, held: o.getAttribute('data-commodity') || '' }; });
+
+        function makeOption(b) {
+            var o = new Option(b.label, b.value);
+            o.setAttribute('data-commodity', b.held);
+            return o;
+        }
+
+        // preserveCurrent: on initial load a stored bin survives even when it
+        // mismatches (editing a historical ticket); on a commodity change a
+        // now-invalid bin clears instead.
+        function refillBins(preserveCurrent) {
+            var pv = commodityEl.value;
+            var items = allBins.filter(function (b) { return !pv || !b.held || b.held === pv; });
+            var original = binEl.value;
+            var current = original;
+            var placeholder = binEl.options.length ? binEl.options[0].text : '-- Select --';
+            binEl.innerHTML = '';
+            binEl.appendChild(new Option(placeholder, ''));
+            items.forEach(function (b) { binEl.appendChild(makeOption(b)); });
+            if (current && !items.some(function (b) { return b.value === current; })) {
+                var stored = allBins.find(function (b) { return b.value === current; });
+                if (preserveCurrent) {
+                    binEl.appendChild(stored ? makeOption(stored) : new Option(current, current));
+                } else {
+                    current = '';
+                }
+            }
+            binEl.value = current;
+            // A cleared bin must notify its own dependents (cascade sub-fields).
+            if (original !== current) binEl.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        binEl.addEventListener('change', function () {
+            var opt = binEl.options[binEl.selectedIndex];
+            var held = opt ? opt.getAttribute('data-commodity') : '';
+            if (!held) return;
+            if (commodityEl.value === held) return;
+            // The held commodity should be in the list; a retired/limited one
+            // is appended so the auto-set never silently fails.
+            var match = Array.from(commodityEl.options).some(function (o) { return o.value === held; });
+            if (!match) commodityEl.appendChild(new Option(held, held));
+            commodityEl.value = held;
+            // Notify cascading sub-fields (Variety under Commodity, …) and the
+            // bin filter below — the picked bin matches, so it stays put.
+            commodityEl.dispatchEvent(new Event('change', { bubbles: true }));
+        });
+
+        commodityEl.addEventListener('change', function () { refillBins(false); });
+        refillBins(true);
+    })();
+
+    // Transfer To (weighed bin-to-bin transfer): never offer the source bin
+    // as the destination, and when the commodity lock annotates options,
+    // drop destinations holding a different commodity. Runs with or without
+    // the lock — the server re-validates on save either way.
+    (function () {
+        var binEl = document.querySelector('select[name="Bin"]');
+        var xferEl = document.querySelector('select[name="TransferToBin"]');
+        var commodityEl = document.querySelector('select[name="Commodity"]');
+        if (!binEl || !xferEl) return;
+
+        var allDest = Array.from(xferEl.options)
+            .filter(function (o) { return o.value !== ''; })
+            .map(function (o) { return { value: o.value, label: o.text, held: o.getAttribute('data-commodity') || '' }; });
+
+        function refillDest(preserveCurrent) {
+            var src = binEl.value;
+            var pv = commodityEl ? commodityEl.value : '';
+            var items = allDest.filter(function (b) {
+                if (b.value === src) return false;
+                return !pv || !b.held || b.held === pv;
+            });
+            var current = xferEl.value;
+            xferEl.innerHTML = '';
+            xferEl.appendChild(new Option('-- Not a transfer --', ''));
+            items.forEach(function (b) {
+                var o = new Option(b.label, b.value);
+                o.setAttribute('data-commodity', b.held);
+                xferEl.appendChild(o);
+            });
+            if (current && !items.some(function (b) { return b.value === current; })) {
+                if (preserveCurrent) {
+                    var stored = allDest.find(function (b) { return b.value === current; });
+                    xferEl.appendChild(stored
+                        ? (function () { var o = new Option(stored.label, stored.value); o.setAttribute('data-commodity', stored.held); return o; })()
+                        : new Option(current, current));
+                } else {
+                    current = '';
+                }
+            }
+            xferEl.value = current;
+        }
+
+        binEl.addEventListener('change', function () { refillDest(false); });
+        if (commodityEl) commodityEl.addEventListener('change', function () { refillDest(false); });
+        refillDest(true);
+    })();
+</script>

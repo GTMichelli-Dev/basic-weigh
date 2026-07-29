@@ -26,4 +26,12 @@ public class Bin
     /// offered at every location.</summary>
     [Display(Name = "Location")]
     public int? SiteId { get; set; }
+
+    /// <summary>Assigned commodity: what this bin is designated to hold, set
+    /// ahead of the first load or changed once the bin is back to zero. When
+    /// set it locks tickets to that commodity even while the bin is empty;
+    /// null = the bin takes whatever arrives first. Stored as text so the
+    /// assignment survives commodity renames.</summary>
+    [StringLength(50)]
+    public string? Commodity { get; set; }
 }

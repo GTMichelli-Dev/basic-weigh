@@ -84,6 +84,8 @@ public class SetupController : Controller
         existing.UseQuickBooks = setup.UseQuickBooks;
         existing.UseBinInventory = setup.UseBinInventory;
         existing.BinRequired = setup.BinRequired;
+        existing.BinCommodityLock = setup.BinCommodityLock;
+        existing.DefaultReportUnit = setup.DefaultReportUnit == "kg" ? "kg" : "lbs";
         existing.SavePicture = setup.SavePicture;
         existing.UseRetainedTare = setup.UseRetainedTare;
         existing.AutoClearStaleRetainedTare = setup.AutoClearStaleRetainedTare;

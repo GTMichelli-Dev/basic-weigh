@@ -68,9 +68,22 @@
                         <li class="nav-item">
                             <a class="nav-link" asp-controller="Transaction" asp-action="CompletedTrucks">Completed</a>
                         </li>
+                        @if (appSetup?.UseBinInventory == true)
+                        {
+                        <li class="nav-item dropdown">
+                            <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">Reports</a>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" asp-controller="Report" asp-action="Index">Standard Reports</a></li>
+                                <li><a class="dropdown-item" asp-controller="Report" asp-action="Bins">Bin Report</a></li>
+                            </ul>
+                        </li>
+                        }
+                        else
+                        {
                         <li class="nav-item">
                             <a class="nav-link" asp-controller="Report" asp-action="Index">Reports</a>
                         </li>
+                        }
                         @if (isManagerOrAbove)
                         {
                         <li class="nav-item">

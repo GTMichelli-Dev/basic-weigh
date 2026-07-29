@@ -30,4 +30,10 @@ public class BinAdjustment
 
     [StringLength(200)]
     public string? Note { get; set; }
+
+    /// <summary>Set on bin-transfer adjustments: the out-of-source and
+    /// into-destination rows share one id so they display as a Transfer and
+    /// delete together. Null for ordinary adjustments/true-ups.</summary>
+    [StringLength(40)]
+    public string? TransferId { get; set; }
 }
