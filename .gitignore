@@ -431,3 +431,7 @@ web/Foundation.Web/wwwroot/images/tickets/*.jpg
 
 # Runtime ticket images (camera photos, driver signatures)
 web/Foundation.Web/wwwroot/images/tickets/
+
+# Data Protection key ring (encrypts the stored SMTP password) — machine-local,
+# never commit
+web/Foundation.Web/App_Data/

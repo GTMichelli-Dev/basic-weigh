@@ -35,6 +35,9 @@
         <li class="nav-item">
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabLocations" type="button">Locations</button>
         </li>
+        <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabEmail" type="button">Email</button>
+        </li>
         <li class="nav-item" id="tabKioskPromptsNav" style="display: @(Model.KioskCount > 0 ? "block" : "none");">
             <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabKioskPrompts" type="button">Kiosk Prompts</button>
         </li>
@@ -565,6 +568,142 @@
             </div>
         </div>
 
+        @* TAB: Email — SMTP settings, scheduled Excel reports, per-load emails.
+           Everything in here saves through /api/email/*, not the settings form's
+           auto-save, so #emailEditor is excluded from that handler. *@
+        <div class="tab-pane fade" id="tabEmail">
+            <div id="emailEditor">
+                <div class="row g-3">
+                    <div class="col-12 col-xl-5">
+                        <div class="card">
+                            <div class="card-header py-1 d-flex justify-content-between align-items-center" style="background: var(--bw-surface-alt); color: var(--bw-text);">
+                                <strong>Email Server</strong>
+                                <div class="form-check form-switch mb-0">
+                                    <input class="form-check-input" type="checkbox" id="emEnabled" />
+                                    <label class="form-check-label small" for="emEnabled">Enabled</label>
+                                </div>
+                            </div>
+                            <div class="card-body py-2">
+                                <p class="small mb-2" style="color: var(--bw-text-muted);">
+                                    Outgoing mail for scheduled reports and load emails. Defaults are
+                                    for <a href="https://www.smtp2go.com" target="_blank" rel="noopener">SMTP2GO</a>
+                                    — use the SMTP username and password from your SMTP2GO account
+                                    (not your login). Any relay works. Changes save when you leave a
+                                    field.
+                                </p>
+                                <div class="row g-2">
+                                    <div class="col-8">
+                                        <label class="form-label mb-0 small" for="emHost">SMTP Server</label>
+                                        <input class="form-control form-control-sm" id="emHost" maxlength="200" placeholder="mail.smtp2go.com" />
+                                    </div>
+                                    <div class="col-4">
+                                        <label class="form-label mb-0 small" for="emPort">Port</label>
+                                        <input class="form-control form-control-sm" id="emPort" type="number" min="1" max="65535" />
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label mb-0 small" for="emSecurity">Security</label>
+                                        <select class="form-select form-select-sm" id="emSecurity">
+                                            <option value="StartTls">STARTTLS (ports 2525, 587, 25)</option>
+                                            <option value="SslOnConnect">SSL/TLS (port 465)</option>
+                                            <option value="None">None (unencrypted)</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label mb-0 small" for="emUsername">Username</label>
+                                        <input class="form-control form-control-sm" id="emUsername" maxlength="200" autocomplete="off" />
+                                    </div>
+                                    <div class="col-6">
+                                        <label class="form-label mb-0 small" for="emPassword">Password</label>
+                                        <input class="form-control form-control-sm" id="emPassword" type="password" maxlength="200" autocomplete="new-password" />
+                                    </div>
+                                    <div class="col-7">
+                                        <label class="form-label mb-0 small" for="emFromAddress">From Address</label>
+                                        <input class="form-control form-control-sm" id="emFromAddress" maxlength="200" placeholder="scale@yourcompany.com" />
+                                    </div>
+                                    <div class="col-5">
+                                        <label class="form-label mb-0 small" for="emFromName">From Name</label>
+                                        <input class="form-control form-control-sm" id="emFromName" maxlength="100" />
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label mb-0 small" for="emReplyTo">Reply-To <span class="text-muted">(optional)</span></label>
+                                        <input class="form-control form-control-sm" id="emReplyTo" maxlength="200" />
+                                    </div>
+                                </div>
+
+                                <hr class="my-2" />
+                                <label class="form-label mb-0 small" for="emTestTo">Send a test message to</label>
+                                <div class="input-group input-group-sm">
+                                    <input class="form-control form-control-sm" id="emTestTo" placeholder="you@yourcompany.com" />
+                                    <button type="button" class="btn btn-outline-primary" id="emTestBtn">Send Test</button>
+                                </div>
+                                <div id="emSettingsStatus" class="small mt-1">&nbsp;</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-12 col-xl-7">
+                        <div class="card mb-3">
+                            <div class="card-header py-1 d-flex justify-content-between align-items-center" style="background: var(--bw-surface-alt); color: var(--bw-text);">
+                                <strong>Scheduled Reports</strong>
+                                <button type="button" class="btn btn-outline-primary btn-sm py-0" id="emAddScheduleBtn"><i class="fa fa-plus"></i> Add Schedule</button>
+                            </div>
+                            <div class="card-body py-2">
+                                <p class="small mb-2" style="color: var(--bw-text-muted);">
+                                    Excel workbooks of what was weighed, emailed daily, weekly or
+                                    monthly. Each schedule covers the last completed period and can
+                                    go to as many addresses as you like. Columns follow the fields
+                                    you've enabled on the <strong>Fields</strong> tab, plus net
+                                    pounds and each commodity's own unit.
+                                </p>
+                                <div class="table-responsive">
+                                    <table class="table table-sm align-middle mb-0" id="emSchedulesTable">
+                                        <thead>
+                                            <tr class="small text-muted">
+                                                <th>Name</th><th>When</th><th>Recipients</th>
+                                                <th>Filters</th><th>Next Run</th><th>Status</th>
+                                                <th style="width:150px;"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody></tbody>
+                                    </table>
+                                </div>
+                                <div id="emScheduleStatus" class="small mt-1">&nbsp;</div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-header py-1 d-flex justify-content-between align-items-center" style="background: var(--bw-surface-alt); color: var(--bw-text);">
+                                <strong>Individual Load Emails</strong>
+                                <button type="button" class="btn btn-outline-primary btn-sm py-0" id="emAddRuleBtn"><i class="fa fa-plus"></i> Add Rule</button>
+                            </div>
+                            <div class="card-body py-2">
+                                <p class="small mb-2" style="color: var(--bw-text-muted);">
+                                    Emails one message per load as soon as it's weighed out. Filter by
+                                    customer, by commodity, by both, or by neither — leaving a filter
+                                    empty matches everything. Several rules can match the same load;
+                                    each sends its own email.
+                                </p>
+                                <div class="table-responsive">
+                                    <table class="table table-sm align-middle mb-0" id="emRulesTable">
+                                        <thead>
+                                            <tr class="small text-muted">
+                                                <th>Name</th><th>Recipients</th><th>Customers</th>
+                                                <th>Commodities</th><th>Last Sent</th>
+                                                <th style="width:60px;" class="text-center">Active</th>
+                                                <th style="width:110px;"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody></tbody>
+                                    </table>
+                                </div>
+                                <div id="emRuleStatus" class="small mt-1">&nbsp;</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- TAB: Kiosk Prompts -->
         <div class="tab-pane fade" id="tabKioskPrompts">
             <div id="retainedTareRequiresPrompts" class="alert alert-info py-1 mb-2 small"
@@ -876,6 +1015,200 @@
     @* No Save button — every change auto-saves (see the auto-save script). *@
 </form>
 
+@* Scheduled-report editor. Outside the settings form so its controls can't
+   trigger the form's auto-save. *@
+<div class="modal fade" id="emScheduleModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="emScheduleModalTitle">Scheduled Report</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-2">
+                <div class="row g-2">
+                    <div class="col-8">
+                        <label class="form-label mb-0 small" for="emsName">Report Name</label>
+                        <input class="form-control form-control-sm" id="emsName" maxlength="100" />
+                    </div>
+                    <div class="col-4 d-flex align-items-end">
+                        <div class="form-check form-switch mb-1">
+                            <input class="form-check-input" type="checkbox" id="emsActive" checked />
+                            <label class="form-check-label small" for="emsActive">Active</label>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label mb-0 small" for="emsRecipients">To</label>
+                        <textarea class="form-control form-control-sm" id="emsRecipients" rows="2"
+                                  placeholder="office@yourcompany.com, owner@yourcompany.com"></textarea>
+                        <div class="form-text small mt-0">Separate addresses with commas, semicolons or new lines.</div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label mb-0 small" for="emsCc">CC <span class="text-muted">(optional)</span></label>
+                        <input class="form-control form-control-sm" id="emsCc" />
+                    </div>
+
+                    <div class="col-12"><hr class="my-1" /></div>
+
+                    <div class="col-4">
+                        <label class="form-label mb-0 small" for="emsFrequency">Frequency</label>
+                        <select class="form-select form-select-sm" id="emsFrequency">
+                            <option value="Daily">Daily</option>
+                            <option value="Weekly">Weekly</option>
+                            <option value="Monthly">Monthly</option>
+                        </select>
+                    </div>
+                    <div class="col-4" id="emsDayOfWeekWrap">
+                        <label class="form-label mb-0 small" for="emsDayOfWeek">Day</label>
+                        <select class="form-select form-select-sm" id="emsDayOfWeek">
+                            <option value="0">Sunday</option>
+                            <option value="1">Monday</option>
+                            <option value="2">Tuesday</option>
+                            <option value="3">Wednesday</option>
+                            <option value="4">Thursday</option>
+                            <option value="5">Friday</option>
+                            <option value="6">Saturday</option>
+                        </select>
+                    </div>
+                    <div class="col-4" id="emsDayOfMonthWrap">
+                        <label class="form-label mb-0 small" for="emsDayOfMonth">Day of Month</label>
+                        <input class="form-control form-control-sm" id="emsDayOfMonth" type="number" min="1" max="28" />
+                        <div class="form-text small mt-0">1–28.</div>
+                    </div>
+                    <div class="col-4">
+                        <label class="form-label mb-0 small" for="emsTime">Send At</label>
+                        <input class="form-control form-control-sm" id="emsTime" type="time" />
+                    </div>
+                    <div class="col-12">
+                        <div class="alert alert-light py-1 px-2 mb-0 small" id="emsPeriodHint"></div>
+                    </div>
+
+                    <div class="col-12"><hr class="my-1" /></div>
+
+                    <div class="col-md-4">
+                        <label class="form-label mb-0 small" for="emsCustomers">Customers</label>
+                        <select class="form-select form-select-sm" id="emsCustomers" multiple size="6"></select>
+                        <div class="form-text small mt-0">None selected = all customers.</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label mb-0 small" for="emsCommodities">Commodities</label>
+                        <select class="form-select form-select-sm" id="emsCommodities" multiple size="6"></select>
+                        <div class="form-text small mt-0">None selected = all commodities.</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label mb-0 small" for="emsSite">Location</label>
+                        <select class="form-select form-select-sm" id="emsSite"></select>
+                        <div class="form-text small mt-0">
+                            Matched by the scale that weighed the load — tickets with
+                            no scale recorded are left out.
+                        </div>
+                    </div>
+
+                    <div class="col-12"><hr class="my-1" /></div>
+
+                    <div class="col-12">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="emsGroupCommodities" />
+                            <label class="form-check-label small" for="emsGroupCommodities">
+                                <strong>Separate worksheet per commodity</strong>
+                                <div class="form-text small mt-0">Adds a Summary sheet of per-commodity totals, then one sheet per commodity. Off puts every load on one sheet.</div>
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="emsIncludeGrossTare" checked />
+                            <label class="form-check-label small" for="emsIncludeGrossTare">
+                                Include Gross and Tare columns
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="emsSendWhenEmpty" />
+                            <label class="form-check-label small" for="emsSendWhenEmpty">
+                                Send even when nothing was weighed
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label mb-0 small" for="emsSubject">Subject <span class="text-muted">(optional)</span></label>
+                        <input class="form-control form-control-sm" id="emsSubject" maxlength="200"
+                               placeholder="{company} — {report} — {period}" />
+                        <div class="form-text small mt-0">
+                            Placeholders: <code>{company}</code> <code>{report}</code>
+                            <code>{period}</code> <code>{start}</code> <code>{end}</code> <code>{count}</code>
+                        </div>
+                    </div>
+                </div>
+                <div id="emScheduleModalError" class="small text-danger mt-2"></div>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="emScheduleSaveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@* Per-load email rule editor. *@
+<div class="modal fade" id="emRuleModal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title" id="emRuleModalTitle">Load Email Rule</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-2">
+                <div class="row g-2">
+                    <div class="col-8">
+                        <label class="form-label mb-0 small" for="emrName">Rule Name</label>
+                        <input class="form-control form-control-sm" id="emrName" maxlength="100" />
+                    </div>
+                    <div class="col-4 d-flex align-items-end">
+                        <div class="form-check form-switch mb-1">
+                            <input class="form-check-input" type="checkbox" id="emrActive" checked />
+                            <label class="form-check-label small" for="emrActive">Active</label>
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label mb-0 small" for="emrRecipients">To</label>
+                        <textarea class="form-control form-control-sm" id="emrRecipients" rows="2"
+                                  placeholder="dispatch@customer.com, broker@example.com"></textarea>
+                        <div class="form-text small mt-0">Separate addresses with commas, semicolons or new lines.</div>
+                    </div>
+
+                    <div class="col-12"><hr class="my-1" /></div>
+
+                    <div class="col-md-6">
+                        <label class="form-label mb-0 small" for="emrCustomers">Customers</label>
+                        <select class="form-select form-select-sm" id="emrCustomers" multiple size="7"></select>
+                        <div class="form-text small mt-0">None selected = any customer.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label mb-0 small" for="emrCommodities">Commodities</label>
+                        <select class="form-select form-select-sm" id="emrCommodities" multiple size="7"></select>
+                        <div class="form-text small mt-0">None selected = any commodity.</div>
+                    </div>
+
+                    <div class="col-12">
+                        <label class="form-label mb-0 small" for="emrSubject">Subject <span class="text-muted">(optional)</span></label>
+                        <input class="form-control form-control-sm" id="emrSubject" maxlength="200"
+                               placeholder="{company} — Ticket {ticket}" />
+                        <div class="form-text small mt-0">
+                            Placeholders: <code>{company}</code> <code>{ticket}</code>
+                            <code>{customer}</code> <code>{commodity}</code> <code>{carrier}</code>
+                            <code>{truck}</code> <code>{net}</code> <code>{units}</code>
+                        </div>
+                    </div>
+                </div>
+                <div id="emRuleModalError" class="small text-danger mt-2"></div>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="emRuleSaveBtn">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Setup-wide notice modal (replaces native alert() calls) -->
 <div class="modal fade" id="setupAlertModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered modal-sm">
@@ -1165,9 +1498,10 @@
 
     setupForm.addEventListener('change', function (e) {
         if (!e.target || !e.target.matches('input, select, textarea')) return;
-        // The Locations editor saves through its own API — don't also post
-        // the whole settings form for those edits.
+        // The Locations and Email editors save through their own APIs — don't
+        // also post the whole settings form for those edits.
         if (e.target.closest('#locationsEditor')) return;
+        if (e.target.closest('#emailEditor')) return;
         if (e.target.id === 'Theme') reloadAfterSave = true;
         scheduleAutoSave();
     });
@@ -1792,6 +2126,493 @@
         }
 
         loadSites();
+    })();
+
+    // --- Email editor (Setup → Email) ---
+    // SMTP settings, scheduled Excel reports, and per-load email rules. Saves
+    // through /api/email/*, independent of the settings form's auto-save.
+    (function () {
+        var schedules = [];
+        var rules = [];
+        var options = { customers: [], commodities: [], sites: [] };
+        var editingScheduleId = null;
+        var editingRuleId = null;
+        var statusTimers = {};
+
+        var DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+        function esc(s) {
+            return String(s ?? '').replace(/[&<>"']/g, function (c) {
+                return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+            });
+        }
+
+        function status(elId, msg, isError) {
+            var el = document.getElementById(elId);
+            clearTimeout(statusTimers[elId]);
+            el.innerHTML = '<span class="' + (isError ? 'text-danger' : 'text-success') + '">' + esc(msg) + '</span>';
+            if (!isError) statusTimers[elId] = setTimeout(function () { el.innerHTML = '&nbsp;'; }, 3000);
+        }
+
+        function fmtDate(iso) {
+            if (!iso) return '—';
+            return new Date(iso).toLocaleString([], {
+                month: 'numeric', day: 'numeric', year: '2-digit', hour: 'numeric', minute: '2-digit'
+            });
+        }
+
+        function fmtTime(hour, minute) {
+            var d = new Date(2000, 0, 1, hour, minute);
+            return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        }
+
+        function scheduleWhen(s) {
+            var at = fmtTime(s.sendHour, s.sendMinute);
+            if (s.frequency === 'Weekly') return 'Weekly · ' + DAY_NAMES[s.dayOfWeek] + ' ' + at;
+            if (s.frequency === 'Monthly') return 'Monthly · day ' + s.dayOfMonth + ' ' + at;
+            return 'Daily · ' + at;
+        }
+
+        // Compact filter summary for the list: names when there are one or two,
+        // a count beyond that, so the column stays readable.
+        function filterSummary(s) {
+            var parts = [];
+            function add(label, csv) {
+                var names = (csv || '').split(',').map(function (v) { return v.trim(); })
+                    .filter(function (v) { return v.length; });
+                if (!names.length) return;
+                parts.push(names.length <= 2 ? names.join(', ') : names.length + ' ' + label);
+            }
+            add('customers', s.customerFilter);
+            add('commodities', s.commodityFilter);
+            if (s.siteId) {
+                var site = options.sites.filter(function (x) { return x.id === s.siteId; })[0];
+                if (site) parts.push(site.name);
+            }
+            if (s.groupCommoditiesIntoSheets) parts.push('per-commodity sheets');
+            return parts.length ? parts.join(' · ') : 'All loads';
+        }
+
+        function statusCell(lastError, lastOkIso) {
+            if (lastError) return '<span class="text-danger" title="' + esc(lastError) + '">Failed</span>';
+            if (lastOkIso) return '<span class="text-success">Sent ' + esc(fmtDate(lastOkIso)) + '</span>';
+            return '<span class="text-muted">Not yet run</span>';
+        }
+
+        // ===== SMTP settings =====
+
+        var settingsFields = ['emHost', 'emPort', 'emSecurity', 'emUsername', 'emPassword',
+                              'emFromAddress', 'emFromName', 'emReplyTo'];
+
+        // The stored password never comes back to the browser. The box stays
+        // empty and only counts as a change once it's actually typed in, so an
+        // ordinary save can't blank out a working password.
+        var passwordTouched = false;
+        document.getElementById('emPassword').addEventListener('input', function () {
+            passwordTouched = true;
+        });
+
+        function loadSettings() {
+            return fetch('/api/email/settings').then(function (r) { return r.json(); }).then(function (s) {
+                document.getElementById('emEnabled').checked = s.enabled;
+                document.getElementById('emHost').value = s.host || '';
+                document.getElementById('emPort').value = s.port || 2525;
+                document.getElementById('emSecurity').value = s.securityMode || 'StartTls';
+                document.getElementById('emUsername').value = s.username || '';
+                document.getElementById('emFromAddress').value = s.fromAddress || '';
+                document.getElementById('emFromName').value = s.fromName || '';
+                document.getElementById('emReplyTo').value = s.replyTo || '';
+
+                var pw = document.getElementById('emPassword');
+                pw.value = '';
+                pw.placeholder = s.hasPassword ? 'Saved — type to replace' : '';
+                passwordTouched = false;
+
+                if (s.lastError) status('emSettingsStatus', 'Last send failed: ' + s.lastError, true);
+            });
+        }
+
+        function saveSettings() {
+            var body = {
+                enabled: document.getElementById('emEnabled').checked,
+                host: document.getElementById('emHost').value.trim(),
+                port: parseInt(document.getElementById('emPort').value) || 0,
+                securityMode: document.getElementById('emSecurity').value,
+                username: document.getElementById('emUsername').value.trim(),
+                password: document.getElementById('emPassword').value,
+                changePassword: passwordTouched,
+                fromAddress: document.getElementById('emFromAddress').value.trim(),
+                fromName: document.getElementById('emFromName').value.trim(),
+                replyTo: document.getElementById('emReplyTo').value.trim()
+            };
+            return fetch('/api/email/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            }).then(function (r) {
+                if (!r.ok) return r.json().then(function (e) { throw new Error(e.error || 'Save failed.'); });
+                status('emSettingsStatus', 'Saved ✓', false);
+                // Re-read so the password box resets to its "saved" placeholder.
+                return loadSettings();
+            }).catch(function (e) {
+                status('emSettingsStatus', e.message, true);
+            });
+        }
+
+        document.getElementById('emEnabled').addEventListener('change', saveSettings);
+        settingsFields.forEach(function (id) {
+            document.getElementById(id).addEventListener('change', saveSettings);
+        });
+
+        document.getElementById('emTestBtn').addEventListener('click', function () {
+            var btn = this;
+            var to = document.getElementById('emTestTo').value.trim();
+            if (!to) { status('emSettingsStatus', 'Enter an address to send the test to.', true); return; }
+            btn.disabled = true;
+            status('emSettingsStatus', 'Sending test…', false);
+            fetch('/api/email/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ to: to })
+            }).then(function (r) {
+                if (!r.ok) return r.json().then(function (e) { throw new Error(e.error || 'Send failed.'); });
+                status('emSettingsStatus', 'Test sent to ' + to + ' ✓', false);
+            }).catch(function (e) {
+                status('emSettingsStatus', e.message, true);
+            }).finally(function () { btn.disabled = false; });
+        });
+
+        // ===== Filter pickers =====
+
+        function loadOptions() {
+            return fetch('/api/email/filter-options').then(function (r) { return r.json(); })
+                .then(function (o) { options = o; });
+        }
+
+        function fillMulti(selectId, values) {
+            var sel = document.getElementById(selectId);
+            sel.innerHTML = values.map(function (v) {
+                return '<option value="' + esc(v) + '">' + esc(v) + '</option>';
+            }).join('');
+        }
+
+        function selectMulti(selectId, csv) {
+            var wanted = (csv || '').split(',').map(function (v) { return v.trim().toLowerCase(); })
+                .filter(function (v) { return v.length; });
+            Array.prototype.forEach.call(document.getElementById(selectId).options, function (o) {
+                o.selected = wanted.indexOf(o.value.toLowerCase()) >= 0;
+            });
+        }
+
+        function readMulti(selectId) {
+            var picked = Array.prototype.filter.call(document.getElementById(selectId).options,
+                function (o) { return o.selected; }).map(function (o) { return o.value; });
+            return picked.length ? picked.join(', ') : null;
+        }
+
+        // ===== Scheduled reports =====
+
+        function loadSchedules() {
+            return fetch('/api/email/schedules').then(function (r) { return r.json(); }).then(function (list) {
+                schedules = list;
+                renderSchedules();
+            });
+        }
+
+        function renderSchedules() {
+            var tbody = document.querySelector('#emSchedulesTable tbody');
+            if (!schedules.length) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-muted small py-2">'
+                    + 'No scheduled reports yet. Add one to have Excel summaries emailed automatically.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = schedules.map(function (s) {
+                var to = (s.recipients || '').split(',').map(function (v) { return v.trim(); })
+                    .filter(function (v) { return v.length; });
+                var toText = to.length <= 1 ? (to[0] || '—') : to[0] + ' +' + (to.length - 1);
+                return '<tr data-id="' + s.id + '"' + (s.active ? '' : ' class="opacity-50"') + '>'
+                    + '<td><strong>' + esc(s.name) + '</strong>' + (s.active ? '' : ' <span class="badge bg-secondary">off</span>') + '</td>'
+                    + '<td class="small">' + esc(scheduleWhen(s)) + '</td>'
+                    + '<td class="small" title="' + esc(s.recipients) + '">' + esc(toText) + '</td>'
+                    + '<td class="small">' + esc(filterSummary(s)) + '</td>'
+                    + '<td class="small">' + (s.active ? esc(fmtDate(s.nextRunUtc)) : '—') + '</td>'
+                    + '<td class="small">' + statusCell(s.lastError, s.lastSuccessUtc) + '</td>'
+                    + '<td class="text-end text-nowrap">'
+                    + '<button type="button" class="btn btn-outline-secondary btn-sm py-0 ems-preview" title="Download the workbook without emailing it">Preview</button> '
+                    + '<button type="button" class="btn btn-outline-primary btn-sm py-0 ems-run" title="Send now without changing the schedule">Send</button> '
+                    + '<button type="button" class="btn btn-outline-secondary btn-sm py-0 ems-edit">Edit</button> '
+                    + '<button type="button" class="btn btn-outline-danger btn-sm py-0 ems-delete">×</button>'
+                    + '</td></tr>';
+            }).join('');
+
+            tbody.querySelectorAll('.ems-edit').forEach(function (b) {
+                b.addEventListener('click', function () { openSchedule(rowId(b)); });
+            });
+            tbody.querySelectorAll('.ems-delete').forEach(function (b) {
+                b.addEventListener('click', function () { deleteSchedule(rowId(b)); });
+            });
+            tbody.querySelectorAll('.ems-run').forEach(function (b) {
+                b.addEventListener('click', function () { runSchedule(rowId(b), b); });
+            });
+            tbody.querySelectorAll('.ems-preview').forEach(function (b) {
+                b.addEventListener('click', function () {
+                    window.location = '/api/email/schedules/' + rowId(b) + '/preview';
+                });
+            });
+        }
+
+        function rowId(btn) { return parseInt(btn.closest('tr').dataset.id); }
+
+        function syncFrequencyFields() {
+            var freq = document.getElementById('emsFrequency').value;
+            document.getElementById('emsDayOfWeekWrap').style.display = freq === 'Weekly' ? '' : 'none';
+            document.getElementById('emsDayOfMonthWrap').style.display = freq === 'Monthly' ? '' : 'none';
+            var hint = freq === 'Weekly'
+                ? 'Covers the seven days ending the morning it runs.'
+                : freq === 'Monthly'
+                    ? 'Covers the previous calendar month.'
+                    : 'Covers the previous day.';
+            document.getElementById('emsPeriodHint').textContent = hint
+                + ' Times are in the timezone set on the System tab.';
+        }
+        document.getElementById('emsFrequency').addEventListener('change', syncFrequencyFields);
+
+        function openSchedule(id) {
+            editingScheduleId = id;
+            var s = schedules.filter(function (x) { return x.id === id; })[0] || {
+                name: '', active: true, recipients: '', cc: '', frequency: 'Daily',
+                sendHour: 6, sendMinute: 0, dayOfWeek: 1, dayOfMonth: 1,
+                groupCommoditiesIntoSheets: false, includeGrossTare: true, sendWhenEmpty: false,
+                customerFilter: '', commodityFilter: '', siteId: null, subjectTemplate: ''
+            };
+
+            document.getElementById('emScheduleModalTitle').textContent = id ? 'Edit Scheduled Report' : 'New Scheduled Report';
+            document.getElementById('emScheduleModalError').textContent = '';
+            document.getElementById('emsName').value = s.name;
+            document.getElementById('emsActive').checked = s.active;
+            document.getElementById('emsRecipients').value = s.recipients || '';
+            document.getElementById('emsCc').value = s.cc || '';
+            document.getElementById('emsFrequency').value = s.frequency;
+            document.getElementById('emsDayOfWeek').value = s.dayOfWeek;
+            document.getElementById('emsDayOfMonth').value = s.dayOfMonth;
+            document.getElementById('emsTime').value =
+                String(s.sendHour).padStart(2, '0') + ':' + String(s.sendMinute).padStart(2, '0');
+            document.getElementById('emsGroupCommodities').checked = s.groupCommoditiesIntoSheets;
+            document.getElementById('emsIncludeGrossTare').checked = s.includeGrossTare;
+            document.getElementById('emsSendWhenEmpty').checked = s.sendWhenEmpty;
+            document.getElementById('emsSubject').value = s.subjectTemplate || '';
+
+            fillMulti('emsCustomers', options.customers);
+            fillMulti('emsCommodities', options.commodities);
+            selectMulti('emsCustomers', s.customerFilter);
+            selectMulti('emsCommodities', s.commodityFilter);
+            document.getElementById('emsSite').innerHTML =
+                '<option value="">All locations</option>' + options.sites.map(function (x) {
+                    return '<option value="' + x.id + '">' + esc(x.name) + '</option>';
+                }).join('');
+            document.getElementById('emsSite').value = s.siteId || '';
+
+            syncFrequencyFields();
+            new bootstrap.Modal(document.getElementById('emScheduleModal')).show();
+        }
+
+        document.getElementById('emAddScheduleBtn').addEventListener('click', function () { openSchedule(null); });
+
+        document.getElementById('emScheduleSaveBtn').addEventListener('click', function () {
+            var btn = this;
+            var time = (document.getElementById('emsTime').value || '06:00').split(':');
+            var body = {
+                id: editingScheduleId || 0,
+                name: document.getElementById('emsName').value.trim(),
+                active: document.getElementById('emsActive').checked,
+                recipients: document.getElementById('emsRecipients').value.trim(),
+                cc: document.getElementById('emsCc').value.trim() || null,
+                frequency: document.getElementById('emsFrequency').value,
+                sendHour: parseInt(time[0]) || 0,
+                sendMinute: parseInt(time[1]) || 0,
+                dayOfWeek: parseInt(document.getElementById('emsDayOfWeek').value) || 0,
+                dayOfMonth: parseInt(document.getElementById('emsDayOfMonth').value) || 1,
+                groupCommoditiesIntoSheets: document.getElementById('emsGroupCommodities').checked,
+                includeGrossTare: document.getElementById('emsIncludeGrossTare').checked,
+                sendWhenEmpty: document.getElementById('emsSendWhenEmpty').checked,
+                customerFilter: readMulti('emsCustomers'),
+                commodityFilter: readMulti('emsCommodities'),
+                siteId: parseInt(document.getElementById('emsSite').value) || null,
+                subjectTemplate: document.getElementById('emsSubject').value.trim() || null
+            };
+
+            btn.disabled = true;
+            var url = editingScheduleId ? '/api/email/schedules/' + editingScheduleId : '/api/email/schedules';
+            fetch(url, {
+                method: editingScheduleId ? 'PUT' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            }).then(function (r) {
+                if (!r.ok) return r.json().then(function (e) { throw new Error(e.error || 'Save failed.'); });
+                bootstrap.Modal.getInstance(document.getElementById('emScheduleModal')).hide();
+                status('emScheduleStatus', 'Saved ✓', false);
+                return loadSchedules();
+            }).catch(function (e) {
+                document.getElementById('emScheduleModalError').textContent = e.message;
+            }).finally(function () { btn.disabled = false; });
+        });
+
+        function deleteSchedule(id) {
+            var s = schedules.filter(function (x) { return x.id === id; })[0];
+            if (!confirm('Delete the scheduled report "' + (s ? s.name : '') + '"? It will stop sending.')) return;
+            fetch('/api/email/schedules/' + id, { method: 'DELETE' }).then(function (r) {
+                if (!r.ok) return r.json().then(function (e) { throw new Error(e.error || 'Delete failed.'); });
+                return loadSchedules();
+            }).catch(function (e) { status('emScheduleStatus', e.message, true); });
+        }
+
+        function runSchedule(id, btn) {
+            btn.disabled = true;
+            status('emScheduleStatus', 'Sending…', false);
+            fetch('/api/email/schedules/' + id + '/run', { method: 'POST' }).then(function (r) {
+                return r.json().then(function (d) {
+                    if (!r.ok) throw new Error(d.error || 'Send failed.');
+                    status('emScheduleStatus', d.message || 'Sent ✓', !d.success);
+                    return loadSchedules();
+                });
+            }).catch(function (e) {
+                status('emScheduleStatus', e.message, true);
+                loadSchedules();
+            }).finally(function () { btn.disabled = false; });
+        }
+
+        // ===== Per-load rules =====
+
+        function loadRules() {
+            return fetch('/api/email/rules').then(function (r) { return r.json(); }).then(function (list) {
+                rules = list;
+                renderRules();
+            });
+        }
+
+        function renderRules() {
+            var tbody = document.querySelector('#emRulesTable tbody');
+            if (!rules.length) {
+                tbody.innerHTML = '<tr><td colspan="7" class="text-muted small py-2">'
+                    + 'No load email rules yet. Add one to email a customer or broker as each load finishes.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = rules.map(function (r) {
+                var to = (r.recipients || '').split(',').map(function (v) { return v.trim(); })
+                    .filter(function (v) { return v.length; });
+                var toText = to.length <= 1 ? (to[0] || '—') : to[0] + ' +' + (to.length - 1);
+                return '<tr data-id="' + r.id + '"' + (r.active ? '' : ' class="opacity-50"') + '>'
+                    + '<td><strong>' + esc(r.name) + '</strong>'
+                    + (r.lastError ? ' <span class="text-danger" title="' + esc(r.lastError) + '">⚠</span>' : '') + '</td>'
+                    + '<td class="small" title="' + esc(r.recipients) + '">' + esc(toText) + '</td>'
+                    + '<td class="small">' + esc(r.customerFilter || 'Any') + '</td>'
+                    + '<td class="small">' + esc(r.commodityFilter || 'Any') + '</td>'
+                    + '<td class="small">' + esc(fmtDate(r.lastSentUtc)) + '</td>'
+                    + '<td class="text-center"><input type="checkbox" class="form-check-input emr-active"' + (r.active ? ' checked' : '') + '></td>'
+                    + '<td class="text-end text-nowrap">'
+                    + '<button type="button" class="btn btn-outline-secondary btn-sm py-0 emr-edit">Edit</button> '
+                    + '<button type="button" class="btn btn-outline-danger btn-sm py-0 emr-delete">×</button>'
+                    + '</td></tr>';
+            }).join('');
+
+            tbody.querySelectorAll('.emr-edit').forEach(function (b) {
+                b.addEventListener('click', function () { openRule(rowId(b)); });
+            });
+            tbody.querySelectorAll('.emr-delete').forEach(function (b) {
+                b.addEventListener('click', function () { deleteRule(rowId(b)); });
+            });
+            tbody.querySelectorAll('.emr-active').forEach(function (cb) {
+                cb.addEventListener('change', function () { toggleRule(rowId(cb), cb.checked); });
+            });
+        }
+
+        function openRule(id) {
+            editingRuleId = id;
+            var r = rules.filter(function (x) { return x.id === id; })[0] || {
+                name: '', active: true, recipients: '',
+                customerFilter: '', commodityFilter: '', subjectTemplate: ''
+            };
+
+            document.getElementById('emRuleModalTitle').textContent = id ? 'Edit Load Email Rule' : 'New Load Email Rule';
+            document.getElementById('emRuleModalError').textContent = '';
+            document.getElementById('emrName').value = r.name;
+            document.getElementById('emrActive').checked = r.active;
+            document.getElementById('emrRecipients').value = r.recipients || '';
+            document.getElementById('emrSubject').value = r.subjectTemplate || '';
+
+            fillMulti('emrCustomers', options.customers);
+            fillMulti('emrCommodities', options.commodities);
+            selectMulti('emrCustomers', r.customerFilter);
+            selectMulti('emrCommodities', r.commodityFilter);
+
+            new bootstrap.Modal(document.getElementById('emRuleModal')).show();
+        }
+
+        document.getElementById('emAddRuleBtn').addEventListener('click', function () { openRule(null); });
+
+        document.getElementById('emRuleSaveBtn').addEventListener('click', function () {
+            var btn = this;
+            var body = {
+                id: editingRuleId || 0,
+                name: document.getElementById('emrName').value.trim(),
+                active: document.getElementById('emrActive').checked,
+                recipients: document.getElementById('emrRecipients').value.trim(),
+                customerFilter: readMulti('emrCustomers'),
+                commodityFilter: readMulti('emrCommodities'),
+                subjectTemplate: document.getElementById('emrSubject').value.trim() || null
+            };
+
+            btn.disabled = true;
+            var url = editingRuleId ? '/api/email/rules/' + editingRuleId : '/api/email/rules';
+            fetch(url, {
+                method: editingRuleId ? 'PUT' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            }).then(function (r) {
+                if (!r.ok) return r.json().then(function (e) { throw new Error(e.error || 'Save failed.'); });
+                bootstrap.Modal.getInstance(document.getElementById('emRuleModal')).hide();
+                status('emRuleStatus', 'Saved ✓', false);
+                return loadRules();
+            }).catch(function (e) {
+                document.getElementById('emRuleModalError').textContent = e.message;
+            }).finally(function () { btn.disabled = false; });
+        });
+
+        // The Active checkbox is inline in the list — a one-field PUT that
+        // resends the rest of the rule unchanged.
+        function toggleRule(id, active) {
+            var r = rules.filter(function (x) { return x.id === id; })[0];
+            if (!r) return;
+            fetch('/api/email/rules/' + id, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: id, name: r.name, active: active, recipients: r.recipients,
+                    customerFilter: r.customerFilter, commodityFilter: r.commodityFilter,
+                    subjectTemplate: r.subjectTemplate
+                })
+            }).then(function (resp) {
+                if (!resp.ok) return resp.json().then(function (e) { throw new Error(e.error || 'Save failed.'); });
+                status('emRuleStatus', 'Saved ✓', false);
+                return loadRules();
+            }).catch(function (e) { status('emRuleStatus', e.message, true); loadRules(); });
+        }
+
+        function deleteRule(id) {
+            var r = rules.filter(function (x) { return x.id === id; })[0];
+            if (!confirm('Delete the rule "' + (r ? r.name : '') + '"? Loads will stop being emailed for it.')) return;
+            fetch('/api/email/rules/' + id, { method: 'DELETE' }).then(function (resp) {
+                if (!resp.ok) return resp.json().then(function (e) { throw new Error(e.error || 'Delete failed.'); });
+                return loadRules();
+            }).catch(function (e) { status('emRuleStatus', e.message, true); });
+        }
+
+        // Filter options first — the list renderers use site names from it.
+        loadOptions().then(function () {
+            loadSettings();
+            loadSchedules();
+            loadRules();
+        });
     })();
 
     // --- Confirm modal ---

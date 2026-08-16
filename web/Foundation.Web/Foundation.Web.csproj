@@ -4,10 +4,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>1.12.1</Version>
-    <AssemblyVersion>1.12.1.0</AssemblyVersion>
-    <FileVersion>1.12.1.0</FileVersion>
-    <InformationalVersion>1.12.1</InformationalVersion>
+    <Version>1.13.0</Version>
+    <AssemblyVersion>1.13.0.0</AssemblyVersion>
+    <FileVersion>1.13.0.0</FileVersion>
+    <InformationalVersion>1.13.0</InformationalVersion>
     <Product>Foundation</Product>
   </PropertyGroup>
 
@@ -28,6 +28,12 @@
 
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.1.0" />
+    <!-- Scheduled / emailed reports. Both are pure managed, so they run on the
+         Raspberry Pi ARM builds without the native-asset juggling SkiaSharp
+         needs below. ClosedXML writes the .xlsx server-side (the Reports page
+         builds its own client-side with ExcelJS); MailKit is the SMTP client. -->
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
+    <PackageReference Include="MailKit" Version="4.17.0" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.5.0" />
     <PackageReference Include="DevExpress.AspNetCore.Reporting" Version="25.2.5" />

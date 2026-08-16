@@ -130,14 +130,23 @@ if [[ -d "$APP_DIR/Reports" ]]; then
   echo "  Reports backed up to /tmp/Reports.bak/"
 fi
 
-# Copy new files. Exclude wwwroot/images/tickets/ from the --delete sweep
-# so captured ticket photos (runtime uploads, not part of the build) survive
-# every deploy. Without this, --delete wipes the entire directory.
-rsync -a --delete --exclude='wwwroot/images/tickets/' foundation/ "$APP_DIR/"
+# Copy new files. Exclude runtime state from the --delete sweep — these are
+# written by the running app, not produced by the build, so without an
+# exclusion --delete wipes them on every deploy:
+#   wwwroot/images/tickets/  captured ticket photos and driver signatures
+#   App_Data/                Data Protection key ring, which decrypts the saved
+#                            SMTP password (Setup → Email). Lose it and the
+#                            operator has to retype the password after every
+#                            update.
+rsync -a --delete \
+  --exclude='wwwroot/images/tickets/' \
+  --exclude='App_Data/' \
+  foundation/ "$APP_DIR/"
 
-# Make sure the tickets directory exists for fresh installs and that the
-# service user can write to it.
+# Make sure the runtime directories exist for fresh installs and that the
+# service user can write to them.
 mkdir -p "$APP_DIR/wwwroot/images/tickets"
+mkdir -p "$APP_DIR/App_Data"
 
 # Restore database and reports
 if [[ "$REBUILD_DB" != "1" ]] && [[ -f /tmp/Foundation.db.bak ]]; then

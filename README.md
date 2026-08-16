@@ -22,6 +22,7 @@ Foundation is a web-based truck scale management application for weighing inboun
 - [Configuration](#configuration)
   - [Application Settings](#application-settings)
   - [Setup Page](#setup-page)
+  - [Email Reports](#email-reports)
   - [Scales (multi-scale)](#scales-multi-scale)
   - [Custom Fields & Ticket Printing](#custom-fields--ticket-printing)
   - [User Login System](#user-login-system)
@@ -41,6 +42,8 @@ Foundation is a web-based truck scale management application for weighing inboun
 - **Weigh In / Weigh Out** — Record inbound and outbound truck weights with automatic net weight calculation
 - **Inbound & Completed Trucks** — Track trucks currently on-site and view completed transactions
 - **Reports** — Date-range filtering, group by (Customer, Carrier, Commodity, etc.), export to Excel and PDF
+- **Scheduled Email Reports** — Excel workbooks of what was weighed, emailed daily, weekly, or monthly to any number of recipients; filter by customer, commodity, and location, and optionally split each commodity onto its own worksheet
+- **Load Emails** — Email a message per load as it's weighed out, filtered by customer, commodity, both, or neither
 - **Master Data Tables** — Manage Customers, Carriers, Trucks, Commodities, Locations, and Destinations (tabs follow field visibility; dropdown custom fields get their own tab)
 - **Custom Fields** — Admin-defined ticket fields (text, dropdown, integer, decimal with min/max) that appear on the weigh forms, grids, kiosk prompts, and printed tickets — placeable anywhere in the ticket designer
 - **Field Ordering** — Standard and custom fields share one sort order that drives the weigh forms, with the two form columns kept balanced automatically
@@ -376,8 +379,46 @@ Navigate to **Setup** in the web interface to configure. **Changes auto-save** �
 - **Company & Ticket** — Header lines (company name, address, phone), ticket numbering
 - **System** — Demo mode, kiosk count (0/1/2), login mode, theme, custom icon, driver signature capture (the Remote Signature Pad option shows a **QR code** — scan it with the tablet to open the pad, no typing)
 - **Fields** — Show/hide the standard fields, set the **sort order** for standard and custom fields (one shared scale, so a custom field can slot between built-ins), and manage **custom fields** (text, dropdown, integer/decimal with min/max/precision, required, show-on-ticket, kiosk prompting)
+- **Locations** — Physical yards/facilities; with two or more, operators pick theirs in the navbar
+- **Email** — SMTP server, scheduled reports, and per-load emails (see [Email Reports](#email-reports)). This tab saves through its own API, so its edits are independent of the auto-save above
 - **Kiosk Prompts** — Which fields to show on the kiosk touchscreen
 - **Ticket Designers** — Edit the layout of printed tickets
+
+### Email Reports
+
+**Setup → Email** configures outgoing mail and two kinds of automatic email. Defaults target
+[SMTP2GO](https://www.smtp2go.com) (`mail.smtp2go.com`, port 2525, STARTTLS) — use the SMTP
+username and password from the SMTP2GO account, not the site login — but any relay works.
+**Send Test** proves the settings before you trust a schedule to them.
+
+The SMTP password is encrypted with ASP.NET Data Protection before it is stored; the key ring
+lives in `App_Data/keys` next to the app and is never committed. The password is never sent back
+to the browser — the box shows "Saved — type to replace" and only overwrites when retyped. Moving
+the database to a different server without `App_Data/keys` means re-entering the password.
+
+**Scheduled Reports** attach an `.xlsx` of what was weighed:
+
+- **Daily / Weekly / Monthly** at a time you choose, in the timezone set on the System tab. Each
+  run covers the last completed period — yesterday, the seven days ending that morning, or the
+  previous calendar month — so every load lands in exactly one report.
+- **Recipients** — any number of To and CC addresses per schedule, and any number of schedules,
+  so one site can send an all-loads summary to the office and a customer-filtered copy to that
+  customer.
+- **Filters** — customer, commodity, and location. Empty means everything. The location filter
+  matches through the scale that weighed the load, so tickets with no scale recorded are left out.
+- **Separate worksheet per commodity** — adds a Summary sheet of per-commodity totals followed by
+  one sheet per commodity. Off puts every load on a single sheet.
+- **Columns** follow the fields enabled on the **Fields** tab (a hidden field never appears in a
+  report), plus net weight in pounds and each commodity's own reporting unit — bushels, tons, CWT,
+  whatever is set on **Edit Tables → Commodities**. Gross/Tare are optional.
+- **Preview** downloads the workbook without emailing anyone; **Send** mails it immediately
+  without disturbing the schedule's normal cadence.
+
+**Individual Load Emails** send one message per load as soon as it's weighed out, with the details
+in the message body (no attachment). Filter by customer, by commodity, by both, or by neither;
+several rules can match the same load and each sends its own email. Loads are picked up by a sweep
+that runs every minute, so a send can never slow down or fail a weighment, and a site that is
+offline retries when its uplink returns rather than losing the email.
 
 ### Scales (multi-scale)
 

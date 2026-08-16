@@ -25,6 +25,10 @@ public class ScaleDbContext : DbContext
     public DbSet<Scale> Scales => Set<Scale>();
     public DbSet<Site> Sites => Set<Site>();
     public DbSet<ReportTemplate> ReportTemplates => Set<ReportTemplate>();
+    public DbSet<EmailSettings> EmailSettings => Set<EmailSettings>();
+    public DbSet<ReportSchedule> ReportSchedules => Set<ReportSchedule>();
+    public DbSet<LoadEmailRule> LoadEmailRules => Set<LoadEmailRule>();
+    public DbSet<LoadEmailLog> LoadEmailLogs => Set<LoadEmailLog>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -148,6 +152,31 @@ public class ScaleDbContext : DbContext
             e.HasIndex(t => t.Name).IsUnique();
         });
 
+        modelBuilder.Entity<EmailSettings>(e => e.ToTable("EmailSettings"));
+
+        modelBuilder.Entity<ReportSchedule>(e =>
+        {
+            e.ToTable("ReportSchedules");
+            e.HasIndex(s => s.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<LoadEmailRule>(e =>
+        {
+            e.ToTable("LoadEmailRules");
+            e.HasIndex(r => r.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<LoadEmailLog>(e =>
+        {
+            e.ToTable("LoadEmailLogs");
+            // The sweep's de-dup key: one attempt row per ticket per rule.
+            e.HasIndex(l => new { l.Ticket, l.RuleId }).IsUnique();
+            e.HasOne<LoadEmailRule>()
+                .WithMany()
+                .HasForeignKey(l => l.RuleId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<TransactionCustomValue>(e =>
         {
             e.ToTable("TransactionCustomValues");
@@ -177,6 +206,17 @@ public class ScaleDbContext : DbContext
             Icon = null,
             IconContentType = null,
             Theme = "default"
+        });
+
+        // Single settings row, same shape as AppSetup — the Email tab edits it
+        // in place and never inserts.
+        modelBuilder.Entity<EmailSettings>().HasData(new EmailSettings
+        {
+            Id = 1,
+            Enabled = false,
+            Host = "mail.smtp2go.com",
+            Port = 2525,
+            SecurityMode = "StartTls"
         });
     }
 }

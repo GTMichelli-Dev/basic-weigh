@@ -4,6 +4,7 @@ using Foundation.Web.Services;
 using DevExpress.AspNetCore;
 using DevExpress.AspNetCore.Reporting;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi.Models;
 
@@ -54,6 +55,17 @@ builder.Services.AddSignalR(options =>
     options.MaximumReceiveMessageSize = 1024 * 1024; // 1MB
 });
 builder.Services.AddHostedService<ScaleBroadcastService>();
+
+// Scheduled Excel reports + per-load emails (Setup → Email). The SMTP password
+// is data-protected, and the key ring is pinned to the content root so it
+// survives a restart on the Pi/Linux installs, where the default per-user key
+// location isn't writable under systemd.
+builder.Services.AddDataProtection()
+    .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, "App_Data", "keys")))
+    .SetApplicationName("Foundation");
+builder.Services.AddSingleton<EmailSender>();
+builder.Services.AddScoped<ReportEmailRunner>();
+builder.Services.AddHostedService<ReportScheduleService>();
 
 // Cookie authentication
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
