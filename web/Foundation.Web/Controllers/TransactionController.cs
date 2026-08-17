@@ -549,6 +549,11 @@ public class TransactionController : Controller
             UpdateRetainedTare(existing);
         }
 
+        // A card-driven load finished in the office instead of at the kiosk —
+        // release the card here too, or it would stay stuck on a closed ticket.
+        var card = CardFields.ForTicket(_db, existing);
+        if (card != null) CardFields.Release(card, setup, existing.Ticket);
+
         _db.SaveChanges();
         FormulaFields.RecomputeAndSave(_db, existing);
 
@@ -668,6 +673,14 @@ public class TransactionController : Controller
         if (transaction == null) return NotFound();
 
         transaction.Void = !transaction.Void;
+
+        // Voiding an open card ticket strands the card on a ticket that will
+        // never close — cut it loose so the loader operator can re-issue it.
+        if (transaction.Void)
+        {
+            var voidedCard = _db.Cards.FirstOrDefault(c => c.OpenTicket == transaction.Ticket);
+            if (voidedCard != null) CardFields.Release(voidedCard, _setupCache.Get(), transaction.Ticket);
+        }
         _db.SaveChanges();
 
         return Json(new { success = true, isVoid = transaction.Void });
@@ -679,6 +692,10 @@ public class TransactionController : Controller
     {
         var transaction = _db.Transactions.Find(id);
         if (transaction == null) return NotFound();
+
+        // Same as voiding: the card must not stay bound to a ticket that's gone.
+        var strandedCard = _db.Cards.FirstOrDefault(c => c.OpenTicket == transaction.Ticket);
+        if (strandedCard != null) CardFields.Release(strandedCard, _setupCache.Get(), transaction.Ticket);
 
         _db.Transactions.Remove(transaction);
         _db.SaveChanges();

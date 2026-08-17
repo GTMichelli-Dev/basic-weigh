@@ -29,6 +29,8 @@ public class ScaleDbContext : DbContext
     public DbSet<ReportSchedule> ReportSchedules => Set<ReportSchedule>();
     public DbSet<LoadEmailRule> LoadEmailRules => Set<LoadEmailRule>();
     public DbSet<LoadEmailLog> LoadEmailLogs => Set<LoadEmailLog>();
+    public DbSet<Card> Cards => Set<Card>();
+    public DbSet<CardCustomValue> CardCustomValues => Set<CardCustomValue>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -174,6 +176,31 @@ public class ScaleDbContext : DbContext
             e.HasOne<LoadEmailRule>()
                 .WithMany()
                 .HasForeignKey(l => l.RuleId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Card>(e =>
+        {
+            e.ToTable("Cards");
+            e.HasIndex(c => c.CardNumber).IsUnique();
+            // A card presented at a kiosk resolves its open ticket by this
+            // column, and the setup page lists issued cards first.
+            e.HasIndex(c => c.OpenTicket);
+            e.Property(c => c.Enabled).HasDefaultValue(true);
+            e.Property(c => c.RecycleMode).HasDefaultValue("Default");
+        });
+
+        modelBuilder.Entity<CardCustomValue>(e =>
+        {
+            e.ToTable("CardCustomValues");
+            e.HasIndex(v => new { v.CardId, v.CustomFieldId }).IsUnique();
+            e.HasOne<Card>()
+                .WithMany()
+                .HasForeignKey(v => v.CardId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<CustomField>()
+                .WithMany()
+                .HasForeignKey(v => v.CustomFieldId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
 

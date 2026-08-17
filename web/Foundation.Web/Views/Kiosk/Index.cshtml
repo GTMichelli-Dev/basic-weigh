@@ -601,6 +601,30 @@
             font-weight: 700;
             margin-top: 16px;
         }
+        /* Card instruction on the completion screen — the one thing the driver
+           must read before pulling off the scale, so it gets its own plate. */
+        .complete-card-note {
+            font-size: 1.7rem;
+            font-weight: 900;
+            color: #000;
+            background: #fff;
+            border: 4px solid #000;
+            border-radius: 10px;
+            padding: 10px 28px;
+            margin-top: 16px;
+            letter-spacing: 0.5px;
+        }
+        /* "Present your card" banner on the ready screen (card-reader kiosks). */
+        .kiosk-card-hint {
+            font-size: 2.4rem;
+            font-weight: 900;
+            color: #00e5ff;
+            letter-spacing: 2px;
+            margin-bottom: 24px;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        body.kiosk-light .kiosk-card-hint { color: #0b7285; }
+
         .complete-buttons {
             display: flex;
             gap: 30px;
@@ -777,6 +801,8 @@
 
         <!-- READY: Weigh In / Weigh Out -->
         <div id="state-ready" class="kiosk-state">
+            <!-- Shown only when this kiosk is mapped to a card reader. -->
+            <div class="kiosk-card-hint card-hint" style="display:none;">PRESENT YOUR CARD</div>
             <div class="btn-row btn-stack">
                 <button class="kiosk-btn btn-green btn-wide" id="btn-new-load">
                     PRESS ENTER TO WEIGH IN
@@ -884,6 +910,9 @@
         <div id="state-complete" class="kiosk-state">
             <div class="big-message" id="complete-header">Complete</div>
             <div class="complete-info" id="complete-info"></div>
+            <!-- Card weighing: tells the driver whether to keep the card or
+                 hand it back. Hidden on keyed-in tickets. -->
+            <div class="complete-card-note" id="complete-card-note" style="display:none;"></div>
             <div id="demo-ticket-area"></div>
             <div class="complete-buttons">
                 <button class="kiosk-btn btn-blue" id="btn-reprint">Reprint</button>
@@ -937,6 +966,12 @@
         <div class="overlay-message">Operation Cancelled</div>
         <div class="overlay-sub">Weight changed during operation</div>
     </div>
+    <!-- Card presentation feedback: unknown card, inactive card, truck not on
+         the scale yet. Text is filled in per read. -->
+    <div id="overlay-card-message" class="overlay-screen overlay-yellow">
+        <div class="overlay-message" id="card-message">Card</div>
+        <div class="overlay-sub" id="card-message-sub"></div>
+    </div>
 </div>
 <span class="kiosk-size-label">1280 × 800</span>
 </div>
@@ -954,6 +989,9 @@
     var COMPLETE_DURATION_MS = 4000;
     var OPERATION_TIMEOUT_MS = 75000;
     var OPERATION_WEIGHT_CHANGE = 1000;
+    // A prox reader keeps re-reading while the card is held near it; repeats of
+    // the same card inside this window count as one presentation.
+    var CARD_REPEAT_MS = 4000;
 
     // ===== KIOSK SETTINGS FROM SERVER =====
     var kioskSettings = {
@@ -986,6 +1024,11 @@
         header4: '@Html.Raw((Model.Header4 ?? "").Replace("'", "\\'"))'
     };
 
+    // Card reader this kiosk is mapped to, as "serviceId:readerId". Empty when
+    // card weighing is off or this kiosk has no reader — the touchscreen flow
+    // is unchanged in that case.
+    var kioskReaderId = '@Html.Raw((ViewBag.ReaderId ?? "").ToString().Replace("'", "\\'"))';
+
     // Printer params from URL query string
     var kioskServiceId = '@Html.Raw((ViewBag.ServiceId ?? "").ToString().Replace("'", "\\'"))';
     var kioskPrinterId = '@Html.Raw((ViewBag.PrinterId ?? "").ToString().Replace("'", "\\'"))';
@@ -1013,6 +1056,12 @@
     var WEIGHT_CHANGE_EXIT = 1000; // exit complete screen when weight changes this much
     var operationStartWeight = null; // weight when operation started
     var operationTimer = null; // 60-sec timeout for operations
+
+    // ===== CARD STATE =====
+    var activeCardNumber = null;  // card driving the current flow (sent on save)
+    var cardValues = {};          // field values the card supplies
+    var lastCardRead = { number: null, at: 0 }; // de-dup for a reader that repeats while the card is held
+    var completedCardMessage = null; // "keep the card" / "hand it back" line for the complete screen
 
     // ===== ELEMENTS =====
     var $weightDisplay = $('#weight-display');
@@ -1080,6 +1129,131 @@
             handleScaleChange();
         }
     }, 1000);
+
+    // ===== CARD READS =====
+    // The RFID Reader Service broadcasts every presentation; keep only the ones
+    // from the reader this kiosk is wired to.
+    connection.on('CardRead', function (data) {
+        if (!kioskReaderId) return;
+        var fullId = (data.serviceId || '') + ':' + (data.readerId || '');
+        if (fullId !== kioskReaderId && data.readerId !== kioskReaderId) return;
+
+        var number = (data.cardNumber || '').trim();
+        if (!number) return;
+
+        // A prox reader re-reads while the card is held near it. Treat repeats
+        // of the same card inside a few seconds as one presentation.
+        var now = Date.now();
+        if (lastCardRead.number === number && (now - lastCardRead.at) < CARD_REPEAT_MS) {
+            lastCardRead.at = now;
+            return;
+        }
+        lastCardRead = { number: number, at: now };
+
+        handleCardRead(number);
+    });
+
+    // A card-reader kiosk leads with "present your card"; the touchscreen
+    // buttons stay available for drivers without one.
+    if (kioskReaderId) $('.card-hint').show();
+
+    function handleCardRead(cardNumber) {
+        // Only accept a card from a settled ready/idle kiosk. Mid-operation
+        // reads are ignored so a driver waving the card can't restart a flow
+        // that already has answers in it.
+        if (currentState === 'complete') {
+            // Finished screen still up — let the weight change clear it first.
+            return;
+        }
+        if (isActiveOperation()) return;
+        if (scaleData.error) return;
+
+        if (scaleData.weight < WEIGHT_THRESHOLD) {
+            showCardOverlay('Place Truck on Scale', 'Then present your card again');
+            return;
+        }
+
+        setState('checking-ticket');
+        $('#state-checking-ticket .waiting-message').html('Reading Card<span class="waiting-dots"></span>');
+
+        $.ajax({
+            url: '/api/kiosk/card',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ cardNumber: cardNumber, scaleId: kioskScaleDbId }),
+            success: function (result) {
+                if (!result || !result.ok) {
+                    showCardOverlay((result && result.message) || 'Card Not Recognized', '');
+                    return;
+                }
+                startCardFlow(cardNumber, result);
+            },
+            error: function (xhr) {
+                var msg = 'Card lookup failed';
+                try { var body = JSON.parse(xhr.responseText); if (body.message) msg = body.message; } catch (e) {}
+                showCardOverlay(msg, 'Please try again');
+            },
+            complete: function () {
+                // Restore the shared "Checking Ticket" wording for the keyed flow.
+                $('#state-checking-ticket .waiting-message').html('Checking Ticket<span class="waiting-dots"></span>');
+            }
+        });
+    }
+
+    /// Run the weigh flow the card resolved to, with the card's stored values
+    /// already answered. Only prompts the card leaves blank AND that the kiosk
+    /// refuses to skip are put to the driver — everything else the operator
+    /// already set at the loader.
+    function startCardFlow(cardNumber, result) {
+        activeCardNumber = cardNumber;
+        cardValues = result.values || {};
+        weighinData = {};
+        Object.keys(cardValues).forEach(function (k) { weighinData[k] = cardValues[k]; });
+
+        startOperationTracking();
+
+        loadKioskLists().always(function () {
+            if (result.action === 'weighout') {
+                activeFlow = 'weighout';
+                weighoutTicket = result.ticket;
+                promptQueue = filterPromptsForCard(
+                    buildPromptsForDirection('outbound')
+                        .filter(function (p) { return p.key !== 'carrier' && p.key !== 'truck'; }));
+            } else {
+                activeFlow = 'weighin';
+                weighoutTicket = null;
+                promptQueue = filterPromptsForCard(buildPromptsForDirection('inbound'));
+            }
+
+            promptIndex = 0;
+            if (promptQueue.length > 0) {
+                showNextPrompt();
+            } else {
+                finishPrompts();
+            }
+        });
+    }
+
+    /// Drop every prompt the card already answers, and every optional prompt —
+    /// a field the operator chose to leave blank stays blank rather than being
+    /// pushed onto the driver.
+    function filterPromptsForCard(prompts) {
+        return prompts.filter(function (p) {
+            var answered = cardValues[p.key];
+            if (answered !== undefined && answered !== null && answered !== '') return false;
+            return p.allowSkip === false;
+        });
+    }
+
+    function showCardOverlay(message, sub) {
+        clearOperationTracking();
+        activeFlow = null;
+        activeCardNumber = null;
+        cardValues = {};
+        $('#card-message').text(message);
+        $('#card-message-sub').text(sub || '');
+        showOverlay('overlay-card-message', OVERLAY_DURATION_MS * 1.5);
+    }
 
     connection.start().catch(function (err) {
         console.error('SignalR error:', err);
@@ -1224,6 +1398,8 @@
         weighinData = {};
         promptQueue = [];
         ticketInput = '';
+        activeCardNumber = null;
+        cardValues = {};
 
         var overlayId;
         if (reason === 'error') overlayId = 'overlay-error-cancel';
@@ -1782,6 +1958,8 @@
         weighoutTicket = null;
         weighinData = {};
         promptQueue = [];
+        activeCardNumber = null;
+        cardValues = {};
         setState(scaleData.weight >= WEIGHT_THRESHOLD ? 'ready' : 'idle');
     }
 
@@ -1868,9 +2046,11 @@
                 bin: weighinData.bin || null,
                 printerId: kioskHasPrinter ? (kioskServiceId + ':' + kioskPrinterId) : null,
                 customFields: buildCustomFieldPayload(),
+                cardNumber: activeCardNumber,
                 scaleName: kioskScaleName || null
             }),
             success: function (result) {
+                completedCardMessage = cardGuidance(result);
                 // Server may suppress the inbound-leg print when Retained Tare
                 // is on (the in-leg is just data capture; the closing ticket
                 // is what gets printed). Honor that here for the auto-popup
@@ -1898,6 +2078,18 @@
         });
     }
 
+    /// An outbound value worth sending: something the driver answered during
+    /// this flow. Values prefilled from the card were already written at
+    /// weigh-in, and re-sending them would overwrite whatever the ticket
+    /// actually holds — which matters when the card was presented against a
+    /// ticket the office keyed in.
+    function outboundValue(key) {
+        var v = weighinData[key];
+        if (v === undefined || v === null || v === '') return null;
+        if (cardValues[key] === v) return null;
+        return v;
+    }
+
     function saveWeighOut(weight) {
         setState('saving');
         $.ajax({
@@ -1907,15 +2099,16 @@
             data: JSON.stringify({
                 ticket: weighoutTicket.ticket,
                 weight: weight,
-                destination: weighinData.destination || null,
-                commodity:   weighinData.commodity   || null,
-                customer:    weighinData.customer    || null,
-                location:    weighinData.location    || null,
-                bin:         weighinData.bin         || null,
+                destination: outboundValue('destination'),
+                commodity:   outboundValue('commodity'),
+                customer:    outboundValue('customer'),
+                location:    outboundValue('location'),
+                bin:         outboundValue('bin'),
                 printerId: kioskHasPrinter ? (kioskServiceId + ':' + kioskPrinterId) : null,
                 scaleName: kioskScaleName || null
             }),
             success: function (result) {
+                completedCardMessage = cardGuidance(result);
                 showComplete('Weigh Out', result.ticket, weighoutTicket.inWeight, weight);
             },
             error: function (xhr) {
@@ -1927,9 +2120,27 @@
         });
     }
 
+    /// What the driver should do with the card now. Null on keyed-in tickets.
+    function cardGuidance(result) {
+        if (!result || !result.cardUsed) return null;
+        if (!result.cardClosed) return 'KEEP YOUR CARD — PRESENT IT AGAIN TO WEIGH OUT';
+        return result.cardRecycled
+            ? 'KEEP YOUR CARD FOR YOUR NEXT LOAD'
+            : 'RETURN CARD TO THE LOADER OPERATOR';
+    }
+
     function showComplete(type, ticketNum, inWeight, outWeight, tareInfo) {
         activeFlow = null;
+        activeCardNumber = null;
+        cardValues = {};
         clearOperationTracking();
+
+        var $cardNote = $('#complete-card-note');
+        if (completedCardMessage) {
+            $cardNote.text(completedCardMessage).show();
+        } else {
+            $cardNote.hide().text('');
+        }
         completedWeight = scaleData.weight;
         completedTicket = ticketNum;
 
@@ -2002,6 +2213,8 @@
         completedTicket = null;
         completedType = null;
         completedSuppressBrowserPrint = false;
+        completedCardMessage = null;
+        $('#complete-card-note').hide().text('');
         // Restore the reprint UI for the next completion screen — clear
         // any inline display:none we set so CSS rules drive visibility.
         $('#btn-reprint').css('display', '');

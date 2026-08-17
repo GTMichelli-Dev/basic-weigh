@@ -313,6 +313,34 @@
                             </div>
                             <div class="row g-2 mb-2">
                                 <div class="col-4">
+                                    <label asp-for="UseCardReader" class="form-label mb-0 small"></label>
+                                    <select asp-for="UseCardReader" class="form-select form-select-sm" id="UseCardReader"
+                                            title="Drivers weigh with an HID / prox card issued by the loader operator instead of answering kiosk prompts">
+                                        <option value="false">No</option>
+                                        <option value="true">Yes</option>
+                                    </select>
+                                </div>
+                                <div class="col-4" id="recycleCardsSection" style="display: @(Model.UseCardReader ? "block" : "none");">
+                                    <label asp-for="RecycleCards" class="form-label mb-0 small"></label>
+                                    <select asp-for="RecycleCards" class="form-select form-select-sm"
+                                            title="What happens to a card when its load closes. Individual cards can override this on the Card Setup page.">
+                                        <option value="false">Deactivate after each load</option>
+                                        <option value="true">Recycle — card stays active</option>
+                                    </select>
+                                </div>
+                                <div class="col-2 d-flex align-items-end" id="cardManageSection" style="display: @(Model.UseCardReader ? "flex" : "none") !important;">
+                                    <a href="/Card" class="btn btn-outline-secondary btn-sm w-100" title="Register cards and issue them to drivers">
+                                        Cards
+                                    </a>
+                                </div>
+                                <div class="col-2 d-flex align-items-end" id="readerManageSection" style="display: @(Model.UseCardReader ? "flex" : "none") !important;">
+                                    <a href="/Reader" class="btn btn-outline-secondary btn-sm w-100" title="Serial ports and card-read diagnostics for connected RFID Reader Services">
+                                        Readers
+                                    </a>
+                                </div>
+                            </div>
+                            <div class="row g-2 mb-2">
+                                <div class="col-4">
                                     <label asp-for="UseRetainedTare" class="form-label mb-0 small"></label>
                                     <select asp-for="UseRetainedTare" class="form-select form-select-sm" id="UseRetainedTare">
                                         <option value="false">No</option>
@@ -1542,6 +1570,14 @@
     document.getElementById('SavePicture').addEventListener('change', function () {
         var el = document.getElementById('cameraManageSection');
         el.style.display = this.value === 'true' ? 'flex' : 'none';
+    });
+
+    // --- Card reader options ---
+    document.getElementById('UseCardReader').addEventListener('change', function () {
+        var on = this.value === 'true';
+        document.getElementById('recycleCardsSection').style.display = on ? 'block' : 'none';
+        document.getElementById('cardManageSection').style.display = on ? 'flex' : 'none';
+        document.getElementById('readerManageSection').style.display = on ? 'flex' : 'none';
     });
 
     // --- Driver Signature options ---

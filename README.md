@@ -25,6 +25,7 @@ Foundation is a web-based truck scale management application for weighing inboun
   - [Email Reports](#email-reports)
   - [Scales (multi-scale)](#scales-multi-scale)
   - [Custom Fields & Ticket Printing](#custom-fields--ticket-printing)
+  - [Prox Card Weighing](#prox-card-weighing)
   - [User Login System](#user-login-system)
   - [Updating Device Definitions](#updating-device-definitions)
   - [Rebuilding the Database](#rebuilding-the-database)
@@ -48,6 +49,7 @@ Foundation is a web-based truck scale management application for weighing inboun
 - **Custom Fields** — Admin-defined ticket fields (text, dropdown, integer, decimal with min/max) that appear on the weigh forms, grids, kiosk prompts, and printed tickets — placeable anywhere in the ticket designer
 - **Field Ordering** — Standard and custom fields share one sort order that drives the weigh forms, with the two form columns kept balanced automatically
 - **Kiosk Mode** — Touchscreen-optimized interface for unattended scale houses (1280x800 resolution)
+- **Prox Card Weighing** — A loader operator issues an HID / prox card from a phone with the load's details already on it; the driver presents the card at a kiosk reader to weigh in and out without answering prompts. Cards deactivate when the load closes, or recycle for the next trip
 - **Remote Printing** — Print tickets to thermal printers via Raspberry Pi print agents over SignalR
 - **Ticket Designer** — Edit ticket layouts with the built-in DevExpress Report Designer
 - **Driver Signature Capture** — Operator-device overlay or a remote signature-pad tablet (opened by scanning a QR code on the Setup page)
@@ -186,6 +188,30 @@ bash deploy/deploy-pi-web.sh admin@192.168.1.60
 
 To commission the Pi's network connection in the field without a monitor,
 see [pi-network-setup](https://github.com/GTMichelli-Dev/pi-network-setup).
+
+### RFID Card Reader Service
+
+For prox-card weighing. Installs on the machine the RS-232 card reader is plugged into —
+usually the same Pi that runs the kiosk or the scale reader. Run it **on that machine**:
+
+```bash
+git clone https://github.com/GTMichelli-Dev/foundation.git /tmp/fnd
+bash /tmp/fnd/RfidReaderService/deploy/install.sh https://your-server \
+  --service-id kiosk-1 --local /tmp/fnd/RfidReaderService
+```
+
+The `--local` flag builds from the monorepo checkout. Once the service has its own repo
+(see [`RfidReaderService/REPO-SETUP.md`](RfidReaderService/REPO-SETUP.md)) the shorter form
+in [`RfidReaderService/README.md`](RfidReaderService/README.md) applies instead.
+
+| Option | Default | Notes |
+|--------|---------|-------|
+| `--service-id` | `default` | Kiosks map to readers as `serviceId:readerId`. |
+| `--port` | `5230` | Local REST/Swagger port. |
+| `--install-dir` | `/opt/rfid-reader-service` | |
+
+Re-run to update; the reader configuration is preserved. Configure the reader from
+**Setup → Options → Readers** in the web app.
 
 ### Raspberry Pi Print Agent (arm64)
 
@@ -440,6 +466,67 @@ Custom fields marked **Show on printed ticket** print in one of two ways:
 
 Dropdown-type custom fields also get their own tab on **Edit Tables** for managing the choice list (add, rename, delete, drag to reorder) without opening Setup.
 
+### Prox Card Weighing
+
+Drivers weigh with an HID / prox card instead of answering kiosk prompts. Turn it on with
+**Use Card Reader** (Setup → System → Options), which reveals the **Cards** and **Readers**
+pages and adds a **Card Setup** link to the navbar.
+
+**How a load runs**
+
+1. The truck pulls up to the loader. The operator opens **Card Setup** on a phone, types the
+   card number, and the card's last-issued details come back.
+2. The operator changes whatever this load needs — customer, commodity, truck, bin, custom
+   fields — and taps **Save & Issue**.
+3. The driver presents the card at the kiosk reader. The kiosk fills in everything the card
+   carries and only asks for fields that are **required and not set on the card**. Nothing on
+   the card means the full prompt sequence, exactly as before.
+4. The driver weighs out with the same card — no ticket number to key in. If the truck has an
+   active [retained tare](#configuration), the first presentation closes the load in one
+   weighment.
+5. When the load closes the card is **deactivated** until the operator re-issues it, unless
+   the recycle gate is set — then it keeps its details and works again straight away. The
+   kiosk tells the driver which it is: *"KEEP YOUR CARD FOR YOUR NEXT LOAD"* or *"RETURN CARD
+   TO THE LOADER OPERATOR"*.
+
+**Recycling** is set site-wide by **Recycle Cards** in Setup, and any single card can override
+it on the Card Setup page — so regular haulers can hold a permanent card while one-off
+visitors get single-use ones.
+
+**Enrolling cards.** Register each physical card once on **Cards** (Manager or Admin). With a
+reader connected, presenting a card fills its number in automatically; otherwise type it.
+A card that isn't registered is refused at the kiosk and on the setup page.
+
+The SP-6820 sends a 26-bit Wiegand credential, which the reader service decodes to the card
+number in decimal — normally the number printed on the card. Confirm that on the first card;
+if the site reuses card numbers across facility codes, switch the reader to include the
+facility code and enroll numbers as `123-45678`. See
+[Card format](RfidReaderService/README.md#card-format).
+
+**Mapping a reader to a kiosk.** Readers belong to an [RFID Reader Service](RfidReaderService/README.md)
+and are identified as `serviceId:readerId`. The Launch Kiosk dialog offers connected readers,
+or set it directly:
+
+```
+https://your-server/Kiosk?reader-id=default:kiosk-1-reader&scale-id=2&pin=12345
+```
+
+A kiosk with no `reader-id` ignores card presentations and behaves exactly as it always has.
+
+**Access.** Card Setup is available to any signed-in user (it's the loader operator's job).
+Card enrollment needs Manager or Admin; the Readers page is Admin-only, like the rest of the
+device configuration.
+
+**What a card can carry** — every field on the weigh forms: the standard fields that are
+visible in Setup, plus active custom fields (including free-text ones the kiosk can't prompt
+for). Values are validated against the same master-data lists the weigh forms use, so a card
+can only hold a choice a driver could have picked.
+
+**Safety rails.** A card mid-trip can't be re-issued, deactivated, or deleted until its load
+weighs out. Voiding or deleting an open ticket frees its card, and closing a card's ticket
+from the office releases it just like the kiosk does. Every ticket records the card it was
+weighed with.
+
 ### User Login System
 
 Login is **optional** — controlled by the "Require Login" setting on the Setup page. When disabled, all features are accessible without authentication.
@@ -619,15 +706,26 @@ The deploy script checks DNS before deploying. If it fails, make sure:
 └──────────────────┬──────────────────────────┘
                    │ SignalR (WebSocket)
                    │
-        ┌──────────┴──────────┐
-        │                     │
-┌───────┴───────┐   ┌────────┴────────┐
-│  Raspberry Pi  │   │  Raspberry Pi   │
-│  (Inbound)     │   │  (Outbound)     │
-│  PrinterId: 1  │   │  PrinterId: 2   │
-│  CUPS → Printer│   │  CUPS → Printer │
-└────────────────┘   └─────────────────┘
+        ┌──────────┴──────────┬─────────────────────┐
+        │                     │                     │
+┌───────┴───────┐   ┌────────┴────────┐   ┌────────┴─────────┐
+│  Raspberry Pi  │   │  Raspberry Pi   │   │  Raspberry Pi    │
+│  (Inbound)     │   │  (Outbound)     │   │  RFID Reader Svc │
+│  PrinterId: 1  │   │  PrinterId: 2   │   │  RS-232 → prox   │
+│  CUPS → Printer│   │  CUPS → Printer │   │  card reader     │
+└────────────────┘   └─────────────────┘   └──────────────────┘
 ```
+
+Device services all speak to the same SignalR hub and are installed independently — a site
+runs only the ones it needs:
+
+| Service | Repo | Purpose |
+|---------|------|---------|
+| Scale Reader | [scale-reader-service](https://github.com/GTMichelli-Dev/scale-reader-service) | Weight from indicators (TCP / RS-232) |
+| Web Print | [web-print-service](https://github.com/GTMichelli-Dev/web-print-service) | Ticket printing via CUPS |
+| Camera Capture | [camera-capture-service](https://github.com/GTMichelli-Dev/camera-capture-service) | Ticket images |
+| QB Sync | [qb-sync-service](https://github.com/GTMichelli-Dev/qb-sync-service) | QuickBooks export |
+| RFID Reader | [`RfidReaderService/`](RfidReaderService/README.md) | Prox card reads (RS-232) — not yet split into its own repo |
 
 ---
 

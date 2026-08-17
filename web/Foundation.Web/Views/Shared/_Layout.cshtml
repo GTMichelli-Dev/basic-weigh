@@ -93,6 +93,14 @@
                             <a class="nav-link" asp-controller="MasterData" asp-action="Index">Edit Tables</a>
                         </li>
                         }
+                        @* Loader operators issue cards from a phone, so this link
+                           is shown to every role when card weighing is on. *@
+                        @if (appSetup?.UseCardReader == true)
+                        {
+                        <li class="nav-item">
+                            <a class="nav-link" asp-controller="Card" asp-action="Setup">Card Setup</a>
+                        </li>
+                        }
                         @if (isAdmin)
                         {
                         <li class="nav-item">
@@ -410,6 +418,13 @@
                         <select id="kioskScalePickerSelect" class="form-select"></select>
                         <div class="form-text small">This kiosk reads and records weights from the selected scale.</div>
                     </div>
+                    <div id="kioskReaderPickerWrap" class="mt-2" style="display:none;">
+                        <label class="form-label mb-0 small fw-bold" for="kioskReaderPickerSelect">Card reader for this kiosk</label>
+                        <select id="kioskReaderPickerSelect" class="form-select">
+                            <option value="">— None —</option>
+                        </select>
+                        <div class="form-text small">Cards presented at this reader weigh the truck on this kiosk.</div>
+                    </div>
                 </div>
                 <div class="modal-footer py-1">
                     <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
@@ -423,10 +438,24 @@
     var _kioskPrintersLoaded = false;
 
     var _kioskScalesLoaded = false;
+    var _kioskReadersLoaded = false;
+    var _kioskUseCardReader = @((appSetup?.UseCardReader == true).ToString().ToLower());
 
     function showKioskPrinterPicker() {
         var modal = new bootstrap.Modal(document.getElementById('kioskPrinterPickerModal'));
         modal.show();
+
+        // Card reader mapping (card weighing only). Readers are announced by
+        // the RFID Reader Service over the same hub the printers use.
+        if (_kioskUseCardReader && !_kioskReadersLoaded) {
+            _kioskReadersLoaded = true;
+            var readerConn = new signalR.HubConnectionBuilder().withUrl('/scaleHub').build();
+            readerConn.on('ReaderServiceReady', function (data) { addReadersToDropdown(data); });
+            readerConn.on('ReaderListReceived', function (data) { addReadersToDropdown(data); });
+            readerConn.start().then(function () {
+                readerConn.invoke('RequestReaderList').catch(function () {});
+            }).catch(function () {});
+        }
 
         // Scale mapping for this kiosk device (multi-scale sites). The picker
         // only appears when more than one scale is active; the choice rides
@@ -496,6 +525,30 @@
         _kioskPrintersLoaded = true;
     }
 
+    function addReadersToDropdown(data) {
+        var sel = document.getElementById('kioskReaderPickerSelect');
+        var sid = data.serviceId || 'default';
+        var readers = data.readers || [];
+        readers.forEach(function (r) {
+            var readerId = r.readerId || r.ReaderId;
+            if (!readerId) return;
+            if (r.active === false || r.Active === false) return;
+            var val = sid + ':' + readerId;
+            for (var i = 0; i < sel.options.length; i++) {
+                if (sel.options[i].value === val) return;
+            }
+            var opt = document.createElement('option');
+            opt.value = val;
+            opt.textContent = (r.displayName || r.DisplayName || readerId) + ' (' + sid + ')';
+            sel.appendChild(opt);
+        });
+        if (sel.options.length > 1) {
+            var saved = localStorage.getItem('bw.kioskReader');
+            if (saved && sel.querySelector('option[value="' + saved + '"]')) sel.value = saved;
+            document.getElementById('kioskReaderPickerWrap').style.display = 'block';
+        }
+    }
+
     function launchKiosk() {
         var sel = document.getElementById('kioskPrinterPickerSelect');
         var val = sel.value;
@@ -511,6 +564,14 @@
             if (scaleVal) {
                 url += '&scale-id=' + encodeURIComponent(scaleVal);
                 localStorage.setItem('bw.kioskScale', scaleVal);
+            }
+        }
+        var readerWrap = document.getElementById('kioskReaderPickerWrap');
+        if (readerWrap && readerWrap.style.display !== 'none') {
+            var readerVal = document.getElementById('kioskReaderPickerSelect').value;
+            if (readerVal) {
+                url += '&reader-id=' + encodeURIComponent(readerVal);
+                localStorage.setItem('bw.kioskReader', readerVal);
             }
         }
         window.open(url, '_blank');

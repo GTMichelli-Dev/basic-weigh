@@ -325,6 +325,20 @@ public class ScaleHub : Hub
             await Clients.All.SendAsync("PrintServiceStatusChanged", GetConnectedPrintServiceIds());
         }
 
+        // Check Reader
+        string? disconnectedReaderServiceId = null;
+        bool wasReader;
+        lock (_readerLock)
+        {
+            wasReader = _readerConnections.Remove(Context.ConnectionId, out disconnectedReaderServiceId);
+        }
+        if (wasReader)
+        {
+            await Clients.All.SendAsync("ReaderServiceStatusChanged", GetConnectedReaderServiceIds());
+            if (disconnectedReaderServiceId != null)
+                await Clients.All.SendAsync("ReaderServiceDisconnected", disconnectedReaderServiceId);
+        }
+
         // Check Signature Pad
         bool wasSignaturePad;
         lock (_signaturePadLock)
@@ -439,6 +453,104 @@ public class ScaleHub : Hub
         await Clients.All.SendAsync("ScaleCrudResult", result);
     }
 
+    // ===== RFID CARD READER SERVICE =====
+
+    // Track connected reader services: connectionId -> serviceId
+    private static readonly Dictionary<string, string> _readerConnections = new();
+    private static readonly object _readerLock = new();
+
+    public async Task JoinReaderGroup(string serviceId = "default")
+    {
+        await Groups.AddToGroupAsync(Context.ConnectionId, "ReaderClients");
+        await Groups.AddToGroupAsync(Context.ConnectionId, $"Reader_{serviceId}");
+        lock (_readerLock) { _readerConnections[Context.ConnectionId] = serviceId; }
+        await Clients.All.SendAsync("ReaderServiceStatusChanged", GetConnectedReaderServiceIds());
+    }
+
+    public Task<bool> CheckReaderServiceConnected()
+    {
+        lock (_readerLock) { return Task.FromResult(_readerConnections.Count > 0); }
+    }
+
+    public Task<List<string>> GetConnectedReaderServices()
+    {
+        return Task.FromResult(GetConnectedReaderServiceIds());
+    }
+
+    /// <summary>
+    /// Called by the RFID Reader Service every time a card is presented.
+    /// Broadcast to all web clients; a kiosk keeps only reads from the reader
+    /// it is mapped to, and the Card Setup / Reader pages use them to capture
+    /// a card number without typing.
+    /// </summary>
+    public async Task CardRead(object readData)
+    {
+        await Clients.All.SendAsync("CardRead", readData);
+    }
+
+    /// <summary>Called by the reader service on connect/reconnect to announce its readers.</summary>
+    public async Task ReaderServiceReady(object announcement)
+    {
+        await Clients.All.SendAsync("ReaderServiceReady", announcement);
+    }
+
+    public async Task ReaderServiceDisconnected(string serviceId)
+    {
+        await Clients.All.SendAsync("ReaderServiceDisconnected", serviceId);
+    }
+
+    public async Task RequestReaderList()
+    {
+        await Clients.Group("ReaderClients").SendAsync("GetReaderList");
+    }
+
+    public async Task ReaderListResponse(object readers)
+    {
+        await Clients.All.SendAsync("ReaderListReceived", readers);
+    }
+
+    /// <summary>Ask a reader service which serial ports the host actually has,
+    /// so the management page can offer a list instead of a free-text box.</summary>
+    public async Task RequestSerialPorts(string serviceId)
+    {
+        await Clients.Group($"Reader_{serviceId}").SendAsync("GetSerialPorts");
+    }
+
+    public async Task SerialPortsResponse(object ports)
+    {
+        await Clients.All.SendAsync("SerialPortsReceived", ports);
+    }
+
+    // ===== READER CRUD RELAY (Web UI -> Reader Service) =====
+
+    public async Task AddReaderToService(string serviceId, object readerConfig)
+    {
+        await Clients.Group($"Reader_{serviceId}").SendAsync("AddReader", readerConfig);
+    }
+
+    public async Task UpdateReaderOnService(string serviceId, string readerId, object readerConfig)
+    {
+        await Clients.Group($"Reader_{serviceId}").SendAsync("UpdateReader", readerId, readerConfig);
+    }
+
+    public async Task DeleteReaderFromService(string serviceId, string readerId)
+    {
+        await Clients.Group($"Reader_{serviceId}").SendAsync("DeleteReader", readerId);
+    }
+
+    public async Task ReaderCrudResult(object result)
+    {
+        await Clients.All.SendAsync("ReaderCrudResult", result);
+    }
+
+    /// <summary>Reader service -> web clients: raw frames captured while the
+    /// management page has diagnostics open, so an unknown wire format can be
+    /// worked out in the field.</summary>
+    public async Task ReaderDiagnostic(object frame)
+    {
+        await Clients.All.SendAsync("ReaderDiagnostic", frame);
+    }
+
     // ===== HELPERS =====
 
     private static List<string> GetConnectedCameraServiceIds()
@@ -459,5 +571,10 @@ public class ScaleHub : Hub
     private static List<string> GetConnectedSignaturePadIds()
     {
         lock (_signaturePadLock) { return _signaturePadConnections.Values.Distinct().ToList(); }
+    }
+
+    private static List<string> GetConnectedReaderServiceIds()
+    {
+        lock (_readerLock) { return _readerConnections.Values.Distinct().ToList(); }
     }
 }

@@ -1,0 +1,554 @@
+@{
+    ViewData["Title"] = "Card Reader Management";
+    var useCardReader = (bool)(ViewBag.UseCardReader ?? false);
+}
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h3 class="mb-0">Card Reader Management</h3>
+    <a href="/Setup" class="btn btn-outline-secondary btn-sm"><i class="fa fa-arrow-left"></i> Back to Setup</a>
+</div>
+
+@if (!useCardReader)
+{
+    <div class="alert alert-warning py-2">
+        <strong>Use Card Reader</strong> is off (Setup &rarr; System &rarr; Options). Readers can be
+        configured here, but kiosks will ignore card presentations until it is on.
+    </div>
+}
+
+<div id="serviceStatusBar" class="alert alert-warning py-2 mb-3 d-flex align-items-center">
+    <i class="fa fa-spinner fa-spin me-2"></i> Checking reader services...
+</div>
+
+<div id="readerToastContainer" style="position:fixed;top:70px;right:20px;z-index:9999;min-width:350px;max-width:500px;"></div>
+
+<div id="servicesContainer"></div>
+
+<div id="noServicesMessage" class="text-center text-muted py-5" style="display:none;">
+    <i class="fa fa-id-card fa-3x mb-3 d-block"></i>
+    <h5>No Card Reader Services Connected</h5>
+    <p>Install the RFID Reader Service on the machine the reader is plugged into and point it at this server.</p>
+</div>
+
+<!-- Live diagnostics: the tool for commissioning an undocumented reader -->
+<div class="card mt-3">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <strong>Live Reads</strong>
+        <div class="d-flex align-items-center gap-2">
+            <span class="small text-muted">Every frame the reader sends, parsed or not.</span>
+            <button class="btn btn-outline-secondary btn-sm" id="btnClearFrames">Clear</button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive" style="max-height:340px;overflow-y:auto;">
+            <table class="table table-sm mb-0">
+                <thead class="sticky-top" style="background: var(--bw-surface-alt);">
+                    <tr>
+                        <th style="width:90px;">Time</th>
+                        <th style="width:130px;">Reader</th>
+                        <th style="width:150px;">Card Number</th>
+                        <th>Raw</th>
+                        <th>Hex</th>
+                    </tr>
+                </thead>
+                <tbody id="frameRows">
+                    <tr><td colspan="5" class="text-center text-muted py-4">
+                        Present a card at a connected reader — reads appear here.
+                    </td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Add / Edit reader -->
+<div class="modal fade" id="readerModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="readerModalTitle">Add Reader</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="rdServiceId" />
+                <input type="hidden" id="rdMode" value="add" />
+                <input type="hidden" id="rdOriginalId" />
+
+                <div class="row g-2 mb-2">
+                    <div class="col-md-6">
+                        <label class="form-label mb-0 small">Reader ID</label>
+                        <input type="text" class="form-control form-control-sm" id="rdReaderId" placeholder="e.g. kiosk-1-reader" />
+                        <div class="form-text small">Kiosks map to this as <code>serviceId:readerId</code>.</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label mb-0 small">Display Name</label>
+                        <input type="text" class="form-control form-control-sm" id="rdDisplayName" placeholder="e.g. Inbound Kiosk Reader" />
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-md-6">
+                        <label class="form-label mb-0 small">Model</label>
+                        <input type="text" class="form-control form-control-sm" id="rdReaderModel" value="AWID Sentinel-Prox SP-6820" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label mb-0 small">Serial Port</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control form-control-sm" id="rdSerialPort" list="rdPortList" placeholder="/dev/ttyUSB0" />
+                            <button class="btn btn-outline-secondary" type="button" id="btnRefreshPorts" title="Ask the service which ports exist">
+                                <i class="fa fa-refresh"></i>
+                            </button>
+                        </div>
+                        <datalist id="rdPortList"></datalist>
+                    </div>
+                </div>
+
+                <div class="row g-2 mb-3">
+                    <div class="col-md-3">
+                        <label class="form-label mb-0 small">Baud Rate</label>
+                        <select class="form-select form-select-sm" id="rdBaudRate">
+                            <option>1200</option><option>2400</option><option>4800</option>
+                            <option selected>9600</option><option>19200</option>
+                            <option>38400</option><option>57600</option><option>115200</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label mb-0 small">Data Bits</label>
+                        <select class="form-select form-select-sm" id="rdDataBits">
+                            <option>7</option><option selected>8</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label mb-0 small">Parity</label>
+                        <select class="form-select form-select-sm" id="rdParity">
+                            <option selected>None</option><option>Even</option><option>Odd</option>
+                            <option>Mark</option><option>Space</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label mb-0 small">Stop Bits</label>
+                        <select class="form-select form-select-sm" id="rdStopBits">
+                            <option value="1" selected>1</option>
+                            <option value="0">1.5</option>
+                            <option value="2">2</option>
+                        </select>
+                    </div>
+                </div>
+
+                <h6 class="mb-1">Card Number Parsing</h6>
+                <div class="form-text small mb-2">
+                    Start with Auto. If the number comes out wrong, watch the Live Reads panel and
+                    set a regex or format to match what the reader actually sends.
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-md-3">
+                        <label class="form-label mb-0 small">Format</label>
+                        <select class="form-select form-select-sm" id="rdFormat">
+                            <option value="Wiegand26" selected>Wiegand 26-bit (AWID SP-6820)</option>
+                            <option value="Auto">Auto</option>
+                            <option value="Digits">Digits only</option>
+                            <option value="Hex">Hex</option>
+                            <option value="Raw">Whole frame</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label mb-0 small">Card Number Regex <span class="text-muted">(optional)</span></label>
+                        <input type="text" class="form-control form-control-sm" id="rdRegex" placeholder="e.g. C(\d+)" />
+                        <div class="form-text small">Group 1 is the card number. Overrides Format.</div>
+                    </div>
+                    <div class="col-md-3" id="rdStripZerosWrap">
+                        <label class="form-label mb-0 small">Strip Leading Zeros</label>
+                        <select class="form-select form-select-sm" id="rdStripZeros">
+                            <option value="false" selected>No</option>
+                            <option value="true">Yes</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3" id="rdFacilityWrap" style="display:none;">
+                        <label class="form-label mb-0 small">Include Facility Code</label>
+                        <select class="form-select form-select-sm" id="rdFacility">
+                            <option value="false" selected>No — card number only</option>
+                            <option value="true">Yes — "facility-card"</option>
+                        </select>
+                        <div class="form-text small">Only if card numbers repeat across facility codes.</div>
+                    </div>
+                </div>
+
+                <div class="alert alert-secondary py-2 small" id="rdWiegandNote" style="display:none;">
+                    <strong>Wiegand 26-bit:</strong> the reader sends 7 ASCII hex characters
+                    (28 bits). The last 2 bits are padding; of the remaining 26,
+                    bits&nbsp;1&ndash;8 are the facility code and bits&nbsp;9&ndash;24 the card
+                    number, which is reported in decimal &mdash; e.g.
+                    <code>3DD9370</code> &rarr; facility 123, card <strong>45678</strong>.
+                    Min Length and Strip Leading Zeros don't apply.
+                </div>
+
+                <div class="row g-2 mb-2">
+                    <div class="col-md-3">
+                        <label class="form-label mb-0 small">Min Length</label>
+                        <input type="number" class="form-control form-control-sm" id="rdMinLength" value="4" min="1" max="50" />
+                        <div class="form-text small">Shorter frames are noise.</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label mb-0 small">Debounce (ms)</label>
+                        <input type="number" class="form-control form-control-sm" id="rdDebounce" value="3000" min="0" max="30000" />
+                        <div class="form-text small">Repeats while held.</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label mb-0 small">Idle Frame (ms)</label>
+                        <input type="number" class="form-control form-control-sm" id="rdIdleFrame" value="60" min="10" max="1000" />
+                        <div class="form-text small">For readers with no terminator.</div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label mb-0 small">Active</label>
+                        <select class="form-select form-select-sm" id="rdActive">
+                            <option value="true" selected>Yes</option>
+                            <option value="false">No</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btnSaveReader"><i class="fa fa-save"></i> Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script src="~/js/signalr/signalr.min.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    var connection = new signalR.HubConnectionBuilder().withUrl('/scaleHub').withAutomaticReconnect().build();
+
+    var connectedServices = {}; // serviceId -> { readers: [] }
+    var MAX_FRAMES = 40;
+    var frames = [];
+
+    // ===== SIGNALR =====
+
+    connection.on('ReaderServiceStatusChanged', function (serviceIds) {
+        updateStatusBar(serviceIds || []);
+        Object.keys(connectedServices).forEach(function (sid) {
+            if ((serviceIds || []).indexOf(sid) < 0) delete connectedServices[sid];
+        });
+        renderServices();
+    });
+
+    connection.on('ReaderServiceReady', function (data) {
+        connectedServices[data.serviceId] = { readers: data.readers || [] };
+        renderServices();
+        updateStatusBar(Object.keys(connectedServices));
+    });
+
+    connection.on('ReaderServiceDisconnected', function (serviceId) {
+        delete connectedServices[serviceId];
+        renderServices();
+        updateStatusBar(Object.keys(connectedServices));
+    });
+
+    connection.on('ReaderListReceived', function (data) {
+        connectedServices[data.serviceId] = { readers: data.readers || [] };
+        renderServices();
+    });
+
+    connection.on('ReaderCrudResult', function (result) {
+        if (result.success) {
+            showToast('success', capitalize(result.operation) + ' reader "' + result.readerId + '" succeeded.');
+            var modal = bootstrap.Modal.getInstance(document.getElementById('readerModal'));
+            if (modal) modal.hide();
+            // The service restarts its read loops after a change, then
+            // re-announces; ask anyway so the grid is never stale.
+            setTimeout(function () { connection.invoke('RequestReaderList').catch(function () {}); }, 600);
+        } else {
+            showToast('danger', capitalize(result.operation) + ' failed: ' + (result.error || 'unknown error'));
+        }
+    });
+
+    connection.on('SerialPortsReceived', function (data) {
+        var list = document.getElementById('rdPortList');
+        list.innerHTML = (data.ports || []).map(function (p) {
+            return '<option value="' + escAttr(p) + '"></option>';
+        }).join('');
+        if (!(data.ports || []).length) showToast('warning', 'The service reported no serial ports.');
+    });
+
+    // Both a plain card read and a rejected frame land here — the diagnostic
+    // stream is what makes an undocumented reader tractable.
+    connection.on('ReaderDiagnostic', function (frame) {
+        frames.unshift(frame);
+        if (frames.length > MAX_FRAMES) frames.length = MAX_FRAMES;
+        renderFrames();
+    });
+
+    connection.start()
+        .then(function () { return connection.invoke('GetConnectedReaderServices'); })
+        .then(function (services) {
+            updateStatusBar(services);
+            if (services.length > 0) connection.invoke('RequestReaderList');
+        })
+        .catch(function (err) {
+            console.error('SignalR error:', err);
+            updateStatusBar([]);
+        });
+
+    // ===== RENDERING =====
+
+    function updateStatusBar(serviceIds) {
+        var bar = document.getElementById('serviceStatusBar');
+        var noMsg = document.getElementById('noServicesMessage');
+        var base = 'padding:8px 16px !important;margin-bottom:12px !important;border-radius:6px !important;' +
+                   'display:flex !important;align-items:center !important;';
+
+        if (serviceIds && serviceIds.length > 0) {
+            bar.style.cssText = 'background-color:#d1e7dd !important;border-color:#badbcc !important;color:#0f5132 !important;' + base;
+            bar.innerHTML = '<i class="fa fa-check-circle me-2"></i> <strong>' + serviceIds.length +
+                ' Reader Service(s) Connected</strong>';
+            noMsg.style.display = 'none';
+        } else {
+            bar.style.cssText = 'background-color:#f8d7da !important;border-color:#f5c2c7 !important;color:#842029 !important;' + base;
+            bar.innerHTML = '<i class="fa fa-times-circle me-2"></i> <strong>No Reader Services Connected</strong>' +
+                ' &mdash; install the RFID Reader Service and point it at this server.';
+            noMsg.style.display = '';
+        }
+    }
+
+    function renderServices() {
+        var container = document.getElementById('servicesContainer');
+        var keys = Object.keys(connectedServices);
+
+        if (keys.length === 0) { container.innerHTML = ''; return; }
+
+        container.innerHTML = keys.map(function (serviceId) {
+            var readers = connectedServices[serviceId].readers || [];
+            var rows = readers.length === 0
+                ? '<p class="text-muted text-center py-3 mb-0">No readers configured on this service.</p>'
+                : '<div class="table-responsive"><table class="table table-sm table-hover mb-0">' +
+                  '<thead><tr><th>Reader ID</th><th>Display Name</th><th>Port</th><th>Line</th>' +
+                  '<th>Parsing</th><th>Kiosk Mapping</th><th>Active</th><th style="width:140px;">Actions</th></tr></thead><tbody>' +
+                  readers.map(function (r) {
+                      var line = r.baudRate + ',' + r.dataBits + ',' + (r.parity || 'None').charAt(0) + ',' + stopBitsLabel(r.stopBits);
+                      var parsing = r.cardNumberRegex ? 'regex' : (r.format || 'Auto');
+                      var mapping = serviceId + ':' + r.readerId;
+                      return '<tr>' +
+                          '<td>' + escHtml(r.readerId) + '</td>' +
+                          '<td>' + escHtml(r.displayName || '') + '</td>' +
+                          '<td class="small">' + escHtml(r.serialPortName || '—') + '</td>' +
+                          '<td class="small">' + escHtml(line) + '</td>' +
+                          '<td class="small">' + escHtml(parsing) + '</td>' +
+                          '<td class="small"><code>' + escHtml(mapping) + '</code></td>' +
+                          '<td>' + (r.active ? '<span class="text-success fw-bold">&#10003;</span>' : '<span class="text-muted">&#10007;</span>') + '</td>' +
+                          '<td>' +
+                            '<button class="btn btn-outline-secondary btn-sm me-1" data-edit="' + escAttr(serviceId) + '|' + escAttr(r.readerId) + '">Edit</button>' +
+                            '<button class="btn btn-outline-danger btn-sm" data-del="' + escAttr(serviceId) + '|' + escAttr(r.readerId) + '">Delete</button>' +
+                          '</td></tr>';
+                  }).join('') +
+                  '</tbody></table></div>';
+
+            return '<div class="card mb-3">' +
+                '<div class="card-header d-flex justify-content-between align-items-center py-2">' +
+                  '<div><span class="badge bg-success me-2">Connected</span> <strong>' + escHtml(serviceId) + '</strong>' +
+                  ' <span class="text-muted small">(' + readers.length + ' reader' + (readers.length !== 1 ? 's' : '') + ')</span></div>' +
+                  '<button class="btn btn-outline-primary btn-sm" data-add="' + escAttr(serviceId) + '"><i class="fa fa-plus"></i> Add Reader</button>' +
+                '</div><div class="card-body p-0">' + rows + '</div></div>';
+        }).join('');
+
+        container.querySelectorAll('[data-add]').forEach(function (b) {
+            b.addEventListener('click', function () { openAdd(this.getAttribute('data-add')); });
+        });
+        container.querySelectorAll('[data-edit]').forEach(function (b) {
+            b.addEventListener('click', function () {
+                var p = this.getAttribute('data-edit').split('|');
+                openEdit(p[0], p[1]);
+            });
+        });
+        container.querySelectorAll('[data-del]').forEach(function (b) {
+            b.addEventListener('click', function () {
+                var p = this.getAttribute('data-del').split('|');
+                deleteReader(p[0], p[1]);
+            });
+        });
+    }
+
+    function renderFrames() {
+        var tbody = document.getElementById('frameRows');
+        if (frames.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-4">' +
+                'Present a card at a connected reader — reads appear here.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = frames.map(function (f) {
+            var card = f.ok
+                ? '<span class="fw-bold text-success">' + escHtml(f.cardNumber) + '</span>' +
+                  (f.debounced ? ' <span class="badge bg-secondary">repeat</span>' : '')
+                : '<span class="text-danger">' + escHtml(f.reason || 'not parsed') + '</span>';
+            return '<tr>' +
+                '<td class="small text-muted">' + new Date(f.readAt).toLocaleTimeString() + '</td>' +
+                '<td class="small">' + escHtml(f.readerId) + '</td>' +
+                '<td>' + card + '</td>' +
+                '<td class="small"><code>' + escHtml(f.rawText) + '</code></td>' +
+                '<td class="small text-muted" style="word-break:break-all;">' + escHtml(f.rawHex) + '</td>' +
+            '</tr>';
+        }).join('');
+    }
+
+    document.getElementById('btnClearFrames').addEventListener('click', function () {
+        frames = [];
+        renderFrames();
+    });
+
+    // ===== CRUD =====
+
+    function openAdd(serviceId) {
+        document.getElementById('rdServiceId').value = serviceId;
+        document.getElementById('rdMode').value = 'add';
+        document.getElementById('rdOriginalId').value = '';
+        document.getElementById('readerModalTitle').textContent = 'Add Reader to ' + serviceId;
+        setForm({
+            readerId: '', displayName: '', readerModel: 'AWID Sentinel-Prox SP-6820',
+            serialPortName: '', baudRate: 9600, dataBits: 8, parity: 'None', stopBits: 1,
+            // Wiegand 26-bit is the AWID SP-6820's RS-232 format, so a new
+            // reader starts there rather than making someone discover it.
+            format: 'Wiegand26', cardNumberRegex: '', stripLeadingZeros: false,
+            includeFacilityCode: false,
+            minLength: 4, debounceMs: 3000, idleFrameMs: 60, active: true
+        });
+        document.getElementById('rdReaderId').disabled = false;
+        connection.invoke('RequestSerialPorts', serviceId).catch(function () {});
+        new bootstrap.Modal(document.getElementById('readerModal')).show();
+    }
+
+    function openEdit(serviceId, readerId) {
+        var reader = (connectedServices[serviceId].readers || []).find(function (r) { return r.readerId === readerId; });
+        if (!reader) return;
+        document.getElementById('rdServiceId').value = serviceId;
+        document.getElementById('rdMode').value = 'edit';
+        document.getElementById('rdOriginalId').value = readerId;
+        document.getElementById('readerModalTitle').textContent = 'Edit ' + readerId;
+        setForm(reader);
+        // The reader id is the kiosk's mapping key — renaming it silently would
+        // break every kiosk pointed at it, so it's fixed once created.
+        document.getElementById('rdReaderId').disabled = true;
+        connection.invoke('RequestSerialPorts', serviceId).catch(function () {});
+        new bootstrap.Modal(document.getElementById('readerModal')).show();
+    }
+
+    document.getElementById('btnRefreshPorts').addEventListener('click', function () {
+        connection.invoke('RequestSerialPorts', document.getElementById('rdServiceId').value).catch(function () {});
+    });
+
+    function setForm(r) {
+        document.getElementById('rdReaderId').value = r.readerId || '';
+        document.getElementById('rdDisplayName').value = r.displayName || '';
+        document.getElementById('rdReaderModel').value = r.readerModel || '';
+        document.getElementById('rdSerialPort').value = r.serialPortName || '';
+        document.getElementById('rdBaudRate').value = r.baudRate || 9600;
+        document.getElementById('rdDataBits').value = r.dataBits || 8;
+        document.getElementById('rdParity').value = r.parity || 'None';
+        document.getElementById('rdStopBits').value = (r.stopBits === undefined ? 1 : r.stopBits);
+        document.getElementById('rdFormat').value = r.format || 'Auto';
+        document.getElementById('rdRegex').value = r.cardNumberRegex || '';
+        document.getElementById('rdStripZeros').value = r.stripLeadingZeros ? 'true' : 'false';
+        document.getElementById('rdFacility').value = r.includeFacilityCode ? 'true' : 'false';
+        document.getElementById('rdMinLength').value = r.minLength || 4;
+        document.getElementById('rdDebounce').value = (r.debounceMs === undefined ? 3000 : r.debounceMs);
+        document.getElementById('rdIdleFrame').value = r.idleFrameMs || 60;
+        document.getElementById('rdActive').value = r.active === false ? 'false' : 'true';
+        syncFormatFields();
+    }
+
+    // Bound here rather than as an inline onchange: this script is an IIFE, so
+    // markup-level handlers can't see anything declared in it.
+    document.getElementById('rdFormat').addEventListener('change', syncFormatFields);
+
+    /// Wiegand decodes bits, so the text-extraction options don't apply to it.
+    function syncFormatFields() {
+        var wiegand = document.getElementById('rdFormat').value === 'Wiegand26';
+        document.getElementById('rdFacilityWrap').style.display = wiegand ? '' : 'none';
+        document.getElementById('rdStripZerosWrap').style.display = wiegand ? 'none' : '';
+        document.getElementById('rdWiegandNote').style.display = wiegand ? '' : 'none';
+        document.getElementById('rdMinLength').disabled = wiegand;
+    }
+
+    function readForm() {
+        return {
+            readerId: document.getElementById('rdReaderId').value.trim(),
+            displayName: document.getElementById('rdDisplayName').value.trim(),
+            readerModel: document.getElementById('rdReaderModel').value.trim(),
+            serialPortName: document.getElementById('rdSerialPort').value.trim(),
+            baudRate: parseInt(document.getElementById('rdBaudRate').value, 10),
+            dataBits: parseInt(document.getElementById('rdDataBits').value, 10),
+            parity: document.getElementById('rdParity').value,
+            stopBits: parseInt(document.getElementById('rdStopBits').value, 10),
+            format: document.getElementById('rdFormat').value,
+            cardNumberRegex: document.getElementById('rdRegex').value.trim(),
+            stripLeadingZeros: document.getElementById('rdStripZeros').value === 'true',
+            includeFacilityCode: document.getElementById('rdFacility').value === 'true',
+            minLength: parseInt(document.getElementById('rdMinLength').value, 10) || 4,
+            debounceMs: parseInt(document.getElementById('rdDebounce').value, 10),
+            idleFrameMs: parseInt(document.getElementById('rdIdleFrame').value, 10) || 60,
+            timeoutMs: 500,
+            active: document.getElementById('rdActive').value === 'true'
+        };
+    }
+
+    document.getElementById('btnSaveReader').addEventListener('click', function () {
+        var serviceId = document.getElementById('rdServiceId').value;
+        var mode = document.getElementById('rdMode').value;
+        var config = readForm();
+
+        if (mode === 'add') {
+            if (!config.readerId) { showToast('danger', 'Reader ID is required.'); return; }
+            connection.invoke('AddReaderToService', serviceId, config).catch(function (e) {
+                showToast('danger', 'Add failed: ' + e);
+            });
+        } else {
+            var readerId = document.getElementById('rdOriginalId').value;
+            config.readerId = readerId;
+            connection.invoke('UpdateReaderOnService', serviceId, readerId, config).catch(function (e) {
+                showToast('danger', 'Update failed: ' + e);
+            });
+        }
+    });
+
+    function deleteReader(serviceId, readerId) {
+        if (!window.confirm('Delete reader "' + readerId + '"? Any kiosk mapped to it will stop accepting cards.')) return;
+        connection.invoke('DeleteReaderFromService', serviceId, readerId).catch(function (e) {
+            showToast('danger', 'Delete failed: ' + e);
+        });
+    }
+
+    // ===== HELPERS =====
+
+    function stopBitsLabel(bits) {
+        if (bits === 0) return '1.5';
+        if (bits === 2) return '2';
+        return '1';
+    }
+
+    function capitalize(s) {
+        s = String(s || '');
+        return s.charAt(0).toUpperCase() + s.slice(1);
+    }
+
+    function showToast(kind, message) {
+        var el = document.createElement('div');
+        el.className = 'alert alert-' + kind + ' py-2 shadow';
+        el.textContent = message;
+        document.getElementById('readerToastContainer').appendChild(el);
+        setTimeout(function () { el.remove(); }, 6000);
+    }
+
+    function escHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    function escAttr(s) { return escHtml(s); }
+})();
+</script>
+}

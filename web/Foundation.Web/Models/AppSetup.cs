@@ -216,6 +216,25 @@ public class AppSetup
     [Display(Name = "Auto-Clear Tares at Midnight")]
     public bool AutoClearStaleRetainedTare { get; set; } = true;
 
+    /// <summary>
+    /// HID / prox card weighing. When true: the Cards pages appear, a kiosk
+    /// mapped to a card reader accepts card presentations, and the loader
+    /// operator issues cards from a phone (Cards → Card Setup). When false,
+    /// nothing card-related is shown and readers are ignored.
+    /// </summary>
+    [Display(Name = "Use Card Reader")]
+    public bool UseCardReader { get; set; }
+
+    /// <summary>
+    /// Site-wide default for what happens to a card when its transaction
+    /// closes. True: the card stays issued with its stored values so the same
+    /// driver can run another load without seeing the loader operator. False:
+    /// the card is deactivated and must be re-issued. Individual cards can
+    /// override this (Card.RecycleMode).
+    /// </summary>
+    [Display(Name = "Recycle Cards")]
+    public bool RecycleCards { get; set; }
+
     // Remote printing mode: None, Scale, RemotePrinter
     [StringLength(20)]
     [Display(Name = "Remote Printing")]

@@ -69,6 +69,13 @@ public class Transaction
     [Display(Name = "Out Scale")]
     public string? OutScale { get; set; }
 
+    /// <summary>Card this ticket was weighed with (HID/prox card weighing).
+    /// Stored as the card number rather than a key so the audit trail survives
+    /// a card being re-enrolled or deleted. Null for keyed-in tickets.</summary>
+    [StringLength(50)]
+    [Display(Name = "Card")]
+    public string? CardNumber { get; set; }
+
     [Display(Name = "Manual Inbound")]
     public bool ManualInbound { get; set; }
 

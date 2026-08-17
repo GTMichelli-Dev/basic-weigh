@@ -89,6 +89,8 @@ public class SetupController : Controller
         existing.SavePicture = setup.SavePicture;
         existing.UseRetainedTare = setup.UseRetainedTare;
         existing.AutoClearStaleRetainedTare = setup.AutoClearStaleRetainedTare;
+        existing.UseCardReader = setup.UseCardReader;
+        existing.RecycleCards = setup.RecycleCards;
         existing.SignatureMode = setup.SignatureMode ?? "None";
         existing.SignaturePadId = setup.SignaturePadId;
         existing.SignatureRequired = setup.SignatureRequired;

@@ -309,6 +309,28 @@ app.Use(async (context, next) =>
             await context.Response.WriteAsync("Access denied. Manager or Admin role required.");
             return;
         }
+
+        // Card readers are device configuration, like the Setup page itself.
+        if ((path.StartsWith("/Reader") || path.StartsWith("/api/readers")) && role != "Admin")
+        {
+            context.Response.StatusCode = 403;
+            await context.Response.WriteAsync("Access denied. Admin role required.");
+            return;
+        }
+
+        // Card enrollment (registering physical cards) is Manager or Admin.
+        // Issuing a card — /Card/Setup and the /api/cards/ endpoints it uses —
+        // is the loader operator's job, so it stays open to the User role.
+        var isCardAdmin = path.Equals("/Card", StringComparison.OrdinalIgnoreCase)
+                          || path.Equals("/Card/", StringComparison.OrdinalIgnoreCase)
+                          || path.StartsWith("/Card/Index", StringComparison.OrdinalIgnoreCase)
+                          || path.StartsWith("/api/cardadmin", StringComparison.OrdinalIgnoreCase);
+        if (isCardAdmin && role == "User")
+        {
+            context.Response.StatusCode = 403;
+            await context.Response.WriteAsync("Access denied. Manager or Admin role required.");
+            return;
+        }
     }
 
     await next();

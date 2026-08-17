@@ -1,0 +1,486 @@
+@{
+    ViewData["Title"] = "Card Setup";
+    var recycleCards = (bool)(ViewBag.RecycleCards ?? false);
+    var useCardReader = (bool)(ViewBag.UseCardReader ?? false);
+    var useRetainedTare = (bool)(ViewBag.UseRetainedTare ?? false);
+}
+
+@section Styles {
+<style>
+    /* This page is used one-handed, outdoors, on a phone, by someone standing
+       next to a running truck. Everything is a single column with targets big
+       enough to hit without looking, and the save bar is always reachable. */
+    .card-setup { max-width: 560px; margin: 0 auto; padding-bottom: 96px; }
+
+    .card-setup .cs-panel {
+        background: var(--bw-surface);
+        border: 1px solid var(--bw-border, rgba(128,128,128,0.3));
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 14px;
+    }
+
+    .card-setup label.cs-label {
+        display: block;
+        font-size: 0.95rem;
+        font-weight: 600;
+        margin-bottom: 4px;
+        color: var(--bw-text);
+    }
+    .card-setup .cs-required { color: #dc3545; font-weight: 700; }
+
+    /* 1.15rem keeps iOS from zooming the viewport on focus, and 54px is a
+       comfortable glove-width target. */
+    .card-setup .form-control,
+    .card-setup .form-select {
+        font-size: 1.15rem;
+        min-height: 54px;
+        border-radius: 10px;
+    }
+
+    .card-setup .cs-field { margin-bottom: 14px; }
+    .card-setup .cs-field:last-child { margin-bottom: 0; }
+
+    #cardNumberInput {
+        font-size: 1.6rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+        text-align: center;
+        min-height: 64px;
+    }
+
+    .cs-status {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        font-size: 1rem;
+    }
+    .cs-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 0.9rem;
+    }
+    .cs-badge-issued { background: #198754; color: #fff; }
+    .cs-badge-free { background: #6c757d; color: #fff; }
+    .cs-badge-open { background: #fd7e14; color: #000; }
+    .cs-badge-disabled { background: #dc3545; color: #fff; }
+
+    /* Save bar pinned to the bottom so it never scrolls out of thumb reach. */
+    .cs-actionbar {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        background: var(--bw-surface);
+        border-top: 2px solid var(--bw-border, rgba(128,128,128,0.3));
+        padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+        display: flex;
+        gap: 10px;
+        z-index: 1030;
+    }
+    .cs-actionbar .btn { flex: 1; min-height: 58px; font-size: 1.15rem; font-weight: 700; border-radius: 10px; }
+    .cs-actionbar .btn-release { flex: 0 0 38%; }
+
+    .cs-toast {
+        position: fixed;
+        left: 12px; right: 12px; top: 12px;
+        z-index: 1040;
+        padding: 14px 16px;
+        border-radius: 10px;
+        font-weight: 600;
+        display: none;
+    }
+    .cs-toast-ok { background: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
+    .cs-toast-err { background: #f8d7da; color: #842029; border: 1px solid #f5c2c7; }
+
+    @@media (min-width: 768px) {
+        .cs-actionbar { position: static; border-top: none; padding: 0; margin-top: 8px; }
+        .card-setup { padding-bottom: 0; }
+    }
+</style>
+}
+
+<div class="card-setup">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h4 class="mb-0">Card Setup</h4>
+        <a href="/Card" class="btn btn-outline-secondary btn-sm">Cards</a>
+    </div>
+
+    @if (!useCardReader)
+    {
+        <div class="alert alert-warning py-2">
+            Card weighing is turned off. Cards can still be set up here, but a kiosk
+            will not accept them until <strong>Use Card Reader</strong> is enabled on
+            Setup &rarr; System &rarr; Options.
+        </div>
+    }
+
+    <div id="csToast" class="cs-toast"></div>
+
+    <!-- STEP 1: identify the card -->
+    <div class="cs-panel">
+        <label class="cs-label" for="cardNumberInput">Card Number</label>
+        <input type="text" class="form-control" id="cardNumberInput"
+               inputmode="numeric" autocomplete="off" autocapitalize="off" spellcheck="false"
+               placeholder="Enter card number" />
+        <div class="d-grid mt-2">
+            <button type="button" class="btn btn-primary" id="btnRecall" style="min-height:54px;font-size:1.1rem;font-weight:700;">
+                Recall Card
+            </button>
+        </div>
+        <div class="form-text mt-2">
+            Enter the full number on the card. Cards are registered on the
+            <a href="/Card">Cards</a> page before they can be issued.
+        </div>
+    </div>
+
+    <!-- STEP 2: card state + fields (revealed after a successful recall) -->
+    <div id="cardBody" style="display:none;">
+        <div class="cs-panel">
+            <div class="cs-status">
+                <span id="csStatusBadge" class="cs-badge cs-badge-free">Available</span>
+                <span id="csCardDescription" class="text-muted"></span>
+            </div>
+            <div id="csLastUsed" class="form-text mt-1"></div>
+            <div id="csOpenTicketWarning" class="alert alert-warning py-2 mt-2 mb-0" style="display:none;"></div>
+        </div>
+
+        <div class="cs-panel">
+            <div id="csFields"><!-- built from /api/cards/fields --></div>
+        </div>
+
+        <div class="cs-panel">
+            <div class="cs-field">
+                <label class="cs-label" for="csRecycleMode">After this load</label>
+                <select class="form-select" id="csRecycleMode">
+                    <option value="Default">Site default (@(recycleCards ? "recycle card" : "deactivate card"))</option>
+                    <option value="Recycle">Recycle — driver keeps the card and can run another load</option>
+                    <option value="Deactivate">Deactivate — driver returns the card to me</option>
+                </select>
+                <div class="form-text">
+                    A recycled card keeps everything set here and works again straight away.
+                    A deactivated card stops working once the truck is off the scale.
+                </div>
+            </div>
+        </div>
+
+        <div class="cs-actionbar">
+            <button type="button" class="btn btn-outline-danger btn-release" id="btnRelease">Deactivate</button>
+            <button type="button" class="btn btn-success" id="btnIssue">Save &amp; Issue</button>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+(function () {
+    'use strict';
+
+    var USE_RETAINED_TARE = @(useRetainedTare ? "true" : "false");
+
+    var fields = [];        // descriptors from the server
+    var currentCard = null; // the recalled card
+    var truckCache = {};    // carrier -> [truckId]
+
+    var $number = document.getElementById('cardNumberInput');
+    var $body = document.getElementById('cardBody');
+    var $fields = document.getElementById('csFields');
+    var $toast = document.getElementById('csToast');
+
+    // ===== SETUP =====
+
+    fetch('/api/cards/fields')
+        .then(function (r) { return r.json(); })
+        .then(function (data) { fields = data.fields || []; })
+        .catch(function () { toast('err', 'Could not load field list. Reload the page.'); });
+
+    document.getElementById('btnRecall').addEventListener('click', recall);
+    document.getElementById('btnIssue').addEventListener('click', issue);
+    document.getElementById('btnRelease').addEventListener('click', release);
+
+    // Enter on the number box recalls, so a keyboard wedge or a phone keypad
+    // "go" key works without hunting for the button.
+    $number.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); recall(); }
+    });
+
+    // ===== RECALL =====
+
+    function recall() {
+        var number = ($number.value || '').trim();
+        if (!number) { toast('err', 'Enter the card number.'); $number.focus(); return; }
+
+        setBusy(true);
+        fetch('/api/cards/lookup?cardNumber=' + encodeURIComponent(number))
+            .then(readJson)
+            .then(function (data) {
+                if (!data.found) {
+                    $body.style.display = 'none';
+                    currentCard = null;
+                    toast('err', 'Card ' + number + ' is not registered. Add it on the Cards page first.');
+                    return;
+                }
+                currentCard = data.card;
+                renderCard();
+                toast('ok', 'Card ' + currentCard.cardNumber + ' recalled.');
+            })
+            .catch(function (err) { toast('err', err.message || 'Lookup failed.'); })
+            .finally(function () { setBusy(false); });
+    }
+
+    function renderCard() {
+        $body.style.display = '';
+        document.getElementById('csCardDescription').textContent = currentCard.description || '';
+        document.getElementById('csRecycleMode').value = currentCard.recycleMode || 'Default';
+
+        var badge = document.getElementById('csStatusBadge');
+        var warn = document.getElementById('csOpenTicketWarning');
+        warn.style.display = 'none';
+
+        if (!currentCard.enabled) {
+            badge.className = 'cs-badge cs-badge-disabled';
+            badge.textContent = 'Disabled';
+        } else if (currentCard.openTicket) {
+            badge.className = 'cs-badge cs-badge-open';
+            badge.textContent = 'On ticket #' + currentCard.openTicket;
+            warn.style.display = '';
+            warn.textContent = 'This card is on open ticket #' + currentCard.openTicket +
+                '. It has to weigh out before it can be issued again.';
+        } else if (currentCard.issued) {
+            badge.className = 'cs-badge cs-badge-issued';
+            badge.textContent = 'Issued';
+        } else {
+            badge.className = 'cs-badge cs-badge-free';
+            badge.textContent = 'Available';
+        }
+
+        var lastUsed = document.getElementById('csLastUsed');
+        if (currentCard.lastTicket) {
+            lastUsed.textContent = 'Last load: ticket #' + currentCard.lastTicket +
+                (currentCard.lastUsedAt ? ' — ' + new Date(currentCard.lastUsedAt).toLocaleString() : '');
+        } else {
+            lastUsed.textContent = 'No loads on this card yet.';
+        }
+
+        renderFields(currentCard.values || {});
+    }
+
+    // ===== FIELDS =====
+
+    function renderFields(values) {
+        $fields.innerHTML = '';
+        fields.forEach(function (f) {
+            $fields.appendChild(buildField(f, values[f.key]));
+        });
+        // Trucks depend on the carrier chosen above them.
+        var carrier = values.carrier;
+        if (carrier) loadTrucks(carrier, values.truck);
+        refreshCascades();
+    }
+
+    function buildField(f, value) {
+        var wrap = document.createElement('div');
+        wrap.className = 'cs-field';
+
+        var label = document.createElement('label');
+        label.className = 'cs-label';
+        label.setAttribute('for', 'fld_' + f.key);
+        label.textContent = f.label;
+        if (f.required) {
+            var req = document.createElement('span');
+            req.className = 'cs-required';
+            req.textContent = ' *';
+            label.appendChild(req);
+        }
+        wrap.appendChild(label);
+
+        var input;
+        if (f.type === 'number') {
+            input = document.createElement('input');
+            input.type = 'number';
+            input.className = 'form-control';
+            input.inputMode = f.integer ? 'numeric' : 'decimal';
+            if (f.minValue !== null && f.minValue !== undefined) input.min = f.minValue;
+            if (f.maxValue !== null && f.maxValue !== undefined) input.max = f.maxValue;
+            if (f.integer) input.step = '1';
+            else if (f.precision) input.step = Math.pow(10, -f.precision).toFixed(f.precision);
+            input.value = value || '';
+        } else if (f.type === 'text') {
+            input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'form-control';
+            input.value = value || '';
+        } else {
+            // list / truck
+            input = document.createElement('select');
+            input.className = 'form-select';
+            fillOptions(input, f.type === 'truck' ? [] : (f.items || []), value);
+        }
+
+        input.id = 'fld_' + f.key;
+        input.setAttribute('data-key', f.key);
+        wrap.appendChild(input);
+
+        if (f.key === 'carrier') {
+            input.addEventListener('change', function () {
+                loadTrucks(this.value, null);
+            });
+        }
+        // A parent field's answer filters its sub-fields' choices.
+        if (fields.some(function (x) { return x.parentKey === f.key; })) {
+            input.addEventListener('change', refreshCascades);
+        }
+
+        if (f.key === 'truck' && USE_RETAINED_TARE) {
+            var hint = document.createElement('div');
+            hint.className = 'form-text';
+            hint.textContent = 'Retained Tare is on: with a carrier and truck set, a stored tare finishes the load in one weighment.';
+            wrap.appendChild(hint);
+        }
+
+        return wrap;
+    }
+
+    function fillOptions(select, items, selected) {
+        select.innerHTML = '';
+        var blank = document.createElement('option');
+        blank.value = '';
+        blank.textContent = '— not set —';
+        select.appendChild(blank);
+
+        (items || []).forEach(function (item) {
+            var opt = document.createElement('option');
+            opt.value = item;
+            opt.textContent = item;
+            select.appendChild(opt);
+        });
+
+        // A value the list no longer offers (renamed master data, or a choice
+        // now limited to another location) is kept visible rather than silently
+        // dropped — otherwise saving the card would erase it without a word.
+        if (selected && !Array.prototype.some.call(select.options, function (o) { return o.value === selected; })) {
+            var stale = document.createElement('option');
+            stale.value = selected;
+            stale.textContent = selected + ' (no longer listed)';
+            select.appendChild(stale);
+        }
+        select.value = selected || '';
+    }
+
+    function loadTrucks(carrier, selected) {
+        var select = document.getElementById('fld_truck');
+        if (!select) return;
+
+        var keep = selected !== undefined && selected !== null ? selected : select.value;
+        if (!carrier) { fillOptions(select, [], keep); return; }
+
+        if (truckCache[carrier]) { fillOptions(select, truckCache[carrier], keep); return; }
+
+        fetch('/api/cards/trucks?carrier=' + encodeURIComponent(carrier))
+            .then(readJson)
+            .then(function (trucks) {
+                truckCache[carrier] = trucks || [];
+                fillOptions(select, truckCache[carrier], keep);
+            })
+            .catch(function () { fillOptions(select, [], keep); });
+    }
+
+    /// Re-filter every cascading sub-field against its parent's current answer.
+    function refreshCascades() {
+        fields.forEach(function (f) {
+            if (!f.parentKey || !f.valueMap) return;
+            var select = document.getElementById('fld_' + f.key);
+            var parent = document.getElementById('fld_' + f.parentKey);
+            if (!select || !parent) return;
+
+            var items = parent.value ? (f.valueMap[parent.value] || []) : (f.items || []);
+            fillOptions(select, items, select.value);
+        });
+    }
+
+    function collectValues() {
+        var values = {};
+        fields.forEach(function (f) {
+            var el = document.getElementById('fld_' + f.key);
+            values[f.key] = el ? (el.value || '') : '';
+        });
+        return values;
+    }
+
+    // ===== ISSUE / DEACTIVATE =====
+
+    function issue() {
+        if (!currentCard) return;
+
+        var values = collectValues();
+        var missing = fields.filter(function (f) {
+            return f.required && !values[f.key];
+        });
+
+        var proceed = missing.length === 0 || window.confirm(
+            'Not set on this card: ' + missing.map(function (f) { return f.label; }).join(', ') +
+            '.\n\nThe driver will be asked for these at the kiosk. Issue anyway?');
+        if (!proceed) return;
+
+        setBusy(true);
+        fetch('/api/cards/' + currentCard.id + '/issue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ values: values, recycleMode: document.getElementById('csRecycleMode').value })
+        })
+            .then(readJson)
+            .then(function (data) {
+                currentCard = data.card;
+                renderCard();
+                toast('ok', 'Card ' + currentCard.cardNumber + ' issued. Hand it to the driver.');
+            })
+            .catch(function (err) { toast('err', err.message || 'Could not issue the card.'); })
+            .finally(function () { setBusy(false); });
+    }
+
+    function release() {
+        if (!currentCard) return;
+        if (!window.confirm('Deactivate card ' + currentCard.cardNumber + '? It will stop working at the kiosk.')) return;
+
+        setBusy(true);
+        fetch('/api/cards/' + currentCard.id + '/release', { method: 'POST' })
+            .then(readJson)
+            .then(function (data) {
+                currentCard = data.card;
+                renderCard();
+                toast('ok', 'Card ' + currentCard.cardNumber + ' deactivated.');
+            })
+            .catch(function (err) { toast('err', err.message || 'Could not deactivate the card.'); })
+            .finally(function () { setBusy(false); });
+    }
+
+    // ===== HELPERS =====
+
+    function readJson(response) {
+        return response.json().catch(function () { return {}; }).then(function (body) {
+            if (!response.ok) throw new Error(body.message || ('Request failed (' + response.status + ')'));
+            return body;
+        });
+    }
+
+    function setBusy(busy) {
+        ['btnRecall', 'btnIssue', 'btnRelease'].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.disabled = busy;
+        });
+    }
+
+    var toastTimer = null;
+    function toast(kind, message) {
+        $toast.className = 'cs-toast ' + (kind === 'ok' ? 'cs-toast-ok' : 'cs-toast-err');
+        $toast.textContent = message;
+        $toast.style.display = 'block';
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(function () { $toast.style.display = 'none'; }, kind === 'ok' ? 3500 : 7000);
+    }
+
+    $number.focus();
+})();
+</script>
+}

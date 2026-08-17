@@ -1,0 +1,349 @@
+@{
+    ViewData["Title"] = "Cards";
+    var recycleCards = (bool)(ViewBag.RecycleCards ?? false);
+    var useCardReader = (bool)(ViewBag.UseCardReader ?? false);
+}
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h3 class="mb-0">Cards</h3>
+    <div class="d-flex gap-2">
+        <a href="/Card/Setup" class="btn btn-outline-primary btn-sm">Card Setup</a>
+        <a href="/Setup" class="btn btn-outline-secondary btn-sm"><i class="fa fa-arrow-left"></i> Back to Setup</a>
+    </div>
+</div>
+
+@if (!useCardReader)
+{
+    <div class="alert alert-warning py-2">
+        <strong>Use Card Reader</strong> is off (Setup &rarr; System &rarr; Options), so kiosks
+        ignore card presentations. Cards can still be registered and issued here.
+    </div>
+}
+
+<div class="alert alert-info py-2">
+    Register each physical card by the number it reports, then the loader operator issues it
+    from <a href="/Card/Setup">Card Setup</a>. Live reads from a connected reader appear below —
+    present a card to fill the number in without typing it.
+</div>
+
+<!-- Live read capture: makes enrollment a matter of tapping cards on a reader -->
+<div class="card mb-3">
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+        <strong>Add a Card</strong>
+        <span id="readerStatus" class="small text-muted">Checking for card readers…</span>
+    </div>
+    <div class="card-body py-2">
+        <div class="row g-2 align-items-end">
+            <div class="col-md-3">
+                <label class="form-label mb-0 small fw-bold">Card Number</label>
+                <input type="text" class="form-control form-control-sm" id="newCardNumber" autocomplete="off" placeholder="Present a card or type it" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label mb-0 small fw-bold">Description</label>
+                <input type="text" class="form-control form-control-sm" id="newCardDescription" placeholder="e.g. Blue #7" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label mb-0 small fw-bold">After Each Load</label>
+                <select class="form-select form-select-sm" id="newCardRecycle">
+                    <option value="Default">Site default (@(recycleCards ? "recycle" : "deactivate"))</option>
+                    <option value="Recycle">Recycle</option>
+                    <option value="Deactivate">Deactivate</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="button" class="btn btn-primary btn-sm w-100" id="btnAddCard">
+                    <i class="fa fa-plus"></i> Add Card
+                </button>
+            </div>
+        </div>
+        <div id="lastReadNote" class="form-text mt-2" style="display:none;"></div>
+    </div>
+</div>
+
+<div id="cardToast" style="position:fixed;top:70px;right:20px;z-index:9999;min-width:320px;max-width:500px;"></div>
+
+<div class="card">
+    <div class="card-header py-2"><strong>Registered Cards</strong> <span id="cardCount" class="text-muted small"></span></div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Card Number</th>
+                        <th>Description</th>
+                        <th>Status</th>
+                        <th>Assigned To</th>
+                        <th>After Load</th>
+                        <th>Last Used</th>
+                        <th style="width:150px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="cardRows">
+                    <tr><td colspan="7" class="text-center text-muted py-4">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Edit modal -->
+<div class="modal fade" id="cardEditModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Card</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="editCardId" />
+                <div class="mb-2">
+                    <label class="form-label mb-0 small">Card Number</label>
+                    <input type="text" class="form-control form-control-sm" id="editCardNumber" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 small">Description</label>
+                    <input type="text" class="form-control form-control-sm" id="editCardDescription" />
+                </div>
+                <div class="row g-2">
+                    <div class="col-6">
+                        <label class="form-label mb-0 small">Enabled</label>
+                        <select class="form-select form-select-sm" id="editCardEnabled">
+                            <option value="true">Yes</option>
+                            <option value="false">No — card is retired</option>
+                        </select>
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label mb-0 small">After Each Load</label>
+                        <select class="form-select form-select-sm" id="editCardRecycle">
+                            <option value="Default">Site default</option>
+                            <option value="Recycle">Recycle</option>
+                            <option value="Deactivate">Deactivate</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-text mt-2">
+                    Disabling a card takes it out of service immediately, including if it is
+                    currently issued.
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btnSaveCardEdit"><i class="fa fa-save"></i> Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script src="~/js/signalr/signalr.min.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    var cards = [];
+
+    loadCards();
+
+    document.getElementById('btnAddCard').addEventListener('click', addCard);
+    document.getElementById('btnSaveCardEdit').addEventListener('click', saveEdit);
+    document.getElementById('newCardNumber').addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); addCard(); }
+    });
+
+    // ===== LIVE READS =====
+    // Any reader on the site can be used to capture a number for enrollment —
+    // this page isn't tied to one kiosk.
+    var connection = new signalR.HubConnectionBuilder().withUrl('/scaleHub').withAutomaticReconnect().build();
+
+    connection.on('CardRead', function (data) {
+        var number = (data.cardNumber || '').trim();
+        if (!number) return;
+
+        document.getElementById('newCardNumber').value = number;
+        var note = document.getElementById('lastReadNote');
+        var known = cards.find(function (c) { return c.cardNumber.toLowerCase() === number.toLowerCase(); });
+        note.style.display = '';
+        note.innerHTML = known
+            ? 'Read <strong>' + escHtml(number) + '</strong> from ' + escHtml(data.readerId || 'a reader') +
+              ' — already registered' + (known.description ? ' as ' + escHtml(known.description) : '') + '.'
+            : 'Read <strong>' + escHtml(number) + '</strong> from ' + escHtml(data.readerId || 'a reader') +
+              ' — not registered yet. Add a description and click Add Card.';
+    });
+
+    connection.on('ReaderServiceStatusChanged', updateReaderStatus);
+
+    connection.start()
+        .then(function () { return connection.invoke('GetConnectedReaderServices'); })
+        .then(updateReaderStatus)
+        .catch(function () { updateReaderStatus([]); });
+
+    function updateReaderStatus(serviceIds) {
+        var el = document.getElementById('readerStatus');
+        if (serviceIds && serviceIds.length > 0) {
+            el.className = 'small text-success fw-bold';
+            el.textContent = serviceIds.length + ' reader service(s) connected — present a card to capture its number';
+        } else {
+            el.className = 'small text-muted';
+            el.textContent = 'No reader service connected — type card numbers by hand';
+        }
+    }
+
+    // ===== CRUD =====
+
+    function loadCards() {
+        fetch('/api/cardadmin')
+            .then(readJson)
+            .then(function (data) { cards = data || []; renderCards(); })
+            .catch(function (err) { toast('danger', err.message || 'Could not load cards.'); });
+    }
+
+    function renderCards() {
+        var tbody = document.getElementById('cardRows');
+        document.getElementById('cardCount').textContent = cards.length ? '(' + cards.length + ')' : '';
+
+        if (cards.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">' +
+                'No cards registered yet. Add one above.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = cards.map(function (c) {
+            return '<tr>' +
+                '<td class="fw-bold">' + escHtml(c.cardNumber) + '</td>' +
+                '<td>' + escHtml(c.description || '') + '</td>' +
+                '<td>' + statusBadge(c) + '</td>' +
+                '<td class="small">' + escHtml(assignedTo(c)) + '</td>' +
+                '<td class="small">' + escHtml(recycleLabel(c)) + '</td>' +
+                '<td class="small text-muted">' + (c.lastUsedAt ? new Date(c.lastUsedAt).toLocaleString() : '—') +
+                    (c.lastTicket ? '<br>#' + escHtml(c.lastTicket) : '') + '</td>' +
+                '<td>' +
+                    '<button class="btn btn-outline-secondary btn-sm me-1" data-edit="' + c.id + '">Edit</button>' +
+                    '<button class="btn btn-outline-danger btn-sm" data-delete="' + c.id + '">Delete</button>' +
+                '</td>' +
+            '</tr>';
+        }).join('');
+
+        tbody.querySelectorAll('[data-edit]').forEach(function (btn) {
+            btn.addEventListener('click', function () { openEdit(parseInt(this.getAttribute('data-edit'), 10)); });
+        });
+        tbody.querySelectorAll('[data-delete]').forEach(function (btn) {
+            btn.addEventListener('click', function () { deleteCard(parseInt(this.getAttribute('data-delete'), 10)); });
+        });
+    }
+
+    function statusBadge(c) {
+        if (!c.enabled) return '<span class="badge bg-danger">Disabled</span>';
+        if (c.openTicket) return '<span class="badge bg-warning text-dark">On ticket #' + escHtml(c.openTicket) + '</span>';
+        if (c.issued) return '<span class="badge bg-success">Issued</span>';
+        return '<span class="badge bg-secondary">Available</span>';
+    }
+
+    function assignedTo(c) {
+        var v = c.values || {};
+        // The two fields that say "whose load is this" at a glance; the rest
+        // are visible on the Card Setup page.
+        var parts = [v.carrier, v.truck].filter(Boolean);
+        var extra = [v.customer, v.commodity].filter(Boolean);
+        if (extra.length) parts.push('(' + extra.join(' / ') + ')');
+        return parts.length ? parts.join(' ') : '—';
+    }
+
+    function recycleLabel(c) {
+        if (c.recycleMode === 'Recycle') return 'Recycle';
+        if (c.recycleMode === 'Deactivate') return 'Deactivate';
+        return 'Site default (' + (c.recycles ? 'recycle' : 'deactivate') + ')';
+    }
+
+    function addCard() {
+        var number = document.getElementById('newCardNumber').value.trim();
+        if (!number) { toast('danger', 'Enter or scan a card number.'); return; }
+
+        fetch('/api/cardadmin', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                cardNumber: number,
+                description: document.getElementById('newCardDescription').value.trim(),
+                recycleMode: document.getElementById('newCardRecycle').value,
+                enabled: true
+            })
+        })
+            .then(readJson)
+            .then(function () {
+                document.getElementById('newCardNumber').value = '';
+                document.getElementById('newCardDescription').value = '';
+                document.getElementById('lastReadNote').style.display = 'none';
+                toast('success', 'Card ' + number + ' registered.');
+                loadCards();
+            })
+            .catch(function (err) { toast('danger', err.message || 'Could not add the card.'); });
+    }
+
+    function openEdit(id) {
+        var card = cards.find(function (c) { return c.id === id; });
+        if (!card) return;
+        document.getElementById('editCardId').value = card.id;
+        document.getElementById('editCardNumber').value = card.cardNumber;
+        document.getElementById('editCardDescription').value = card.description || '';
+        document.getElementById('editCardEnabled').value = card.enabled ? 'true' : 'false';
+        document.getElementById('editCardRecycle').value = card.recycleMode || 'Default';
+        new bootstrap.Modal(document.getElementById('cardEditModal')).show();
+    }
+
+    function saveEdit() {
+        var id = parseInt(document.getElementById('editCardId').value, 10);
+        fetch('/api/cardadmin/' + id, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                cardNumber: document.getElementById('editCardNumber').value.trim(),
+                description: document.getElementById('editCardDescription').value.trim(),
+                enabled: document.getElementById('editCardEnabled').value === 'true',
+                recycleMode: document.getElementById('editCardRecycle').value
+            })
+        })
+            .then(readJson)
+            .then(function () {
+                bootstrap.Modal.getInstance(document.getElementById('cardEditModal')).hide();
+                toast('success', 'Card updated.');
+                loadCards();
+            })
+            .catch(function (err) { toast('danger', err.message || 'Could not save the card.'); });
+    }
+
+    function deleteCard(id) {
+        var card = cards.find(function (c) { return c.id === id; });
+        if (!card) return;
+        if (!window.confirm('Delete card ' + card.cardNumber + '? Tickets already weighed with it keep their record.')) return;
+
+        fetch('/api/cardadmin/' + id, { method: 'DELETE' })
+            .then(readJson)
+            .then(function () { toast('success', 'Card deleted.'); loadCards(); })
+            .catch(function (err) { toast('danger', err.message || 'Could not delete the card.'); });
+    }
+
+    // ===== HELPERS =====
+
+    function readJson(response) {
+        return response.json().catch(function () { return {}; }).then(function (body) {
+            if (!response.ok) throw new Error(body.message || ('Request failed (' + response.status + ')'));
+            return body;
+        });
+    }
+
+    function toast(kind, message) {
+        var el = document.createElement('div');
+        el.className = 'alert alert-' + kind + ' py-2 shadow';
+        el.textContent = message;
+        document.getElementById('cardToast').appendChild(el);
+        setTimeout(function () { el.remove(); }, 5000);
+    }
+
+    function escHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+})();
+</script>
+}
