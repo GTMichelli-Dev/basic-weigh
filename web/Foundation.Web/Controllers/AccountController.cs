@@ -70,7 +70,11 @@ public class AccountController : Controller
     [AllowAnonymous]
     public IActionResult ChangePassword()
     {
-        if (TempData["ChangePasswordUserId"] == null && !User.Identity!.IsAuthenticated)
+        // Peek, not the indexer: reading TempData marks the key for deletion at
+        // the end of the request, so rendering the form used to consume the id
+        // the POST below needs. The page appeared normally and then every
+        // submit fell through to the Login redirect without saving anything.
+        if (TempData.Peek("ChangePasswordUserId") == null && !User.Identity!.IsAuthenticated)
             return RedirectToAction("Login");
 
         return View();
@@ -83,9 +87,10 @@ public class AccountController : Controller
     public async Task<IActionResult> ChangePassword(string newPassword, string confirmPassword)
     {
         int userId;
-        if (TempData["ChangePasswordUserId"] != null)
+        var pendingUserId = TempData.Peek("ChangePasswordUserId");
+        if (pendingUserId != null)
         {
-            userId = (int)TempData["ChangePasswordUserId"]!;
+            userId = (int)pendingUserId;
         }
         else if (User.Identity!.IsAuthenticated)
         {
@@ -116,6 +121,9 @@ public class AccountController : Controller
         user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
         user.MustChangePassword = false;
         _db.SaveChanges();
+
+        // Peek left the key alive; drop it now that the reset is complete.
+        TempData.Remove("ChangePasswordUserId");
 
         await SignInUser(user);
         TempData["Message"] = "Password changed successfully.";
