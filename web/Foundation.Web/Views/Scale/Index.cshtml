@@ -57,7 +57,7 @@
                     <th>Outbound Printer</th>
                     <th style="width:80px;">Order</th>
                     <th style="width:60px;" class="text-center">Active</th>
-                    <th style="width:70px;"></th>
+                    <th style="width:140px;"></th>
                 </tr>
             </thead>
             <tbody></tbody>
@@ -132,7 +132,9 @@
                     <div class="row g-2 mb-2">
                         <div class="col-12">
                             <label class="form-label mb-0 small">Serial Port</label>
-                            <input type="text" class="form-control form-control-sm" id="scaleSerialPortName" placeholder="COM1 (Windows) or /dev/ttyUSB0 (Linux)" />
+                            <input type="text" class="form-control form-control-sm" id="scaleSerialPortName"
+                                   list="scalePortList" placeholder="COM1 (Windows) or /dev/ttyUSB0 (Linux)" />
+                            <datalist id="scalePortList"></datalist>
                         </div>
                     </div>
                     <div class="row g-2 mb-2">
@@ -189,6 +191,73 @@
                     </div>
                 </div>
                 <div id="brandNotes" class="small text-muted" style="display:none;"></div>
+
+                <!-- Auto-Detect: listen to what the indicator actually streams, then let
+                     the operator point at the weight and the motion flag by column. -->
+                <hr class="my-2" />
+                <div class="d-flex justify-content-between align-items-center">
+                    <strong class="small">Continuous Stream</strong>
+                    <button type="button" class="btn btn-outline-info btn-sm py-0" id="btnAutoDetect" onclick="autoDetectFormat()">
+                        <i class="fa fa-magic"></i> Auto-Detect
+                    </button>
+                </div>
+                <div class="form-text small mb-2">
+                    Listens for a few seconds and works out where the weight sits in each frame.
+                    Put a load on the scale first — a weight that changes is much easier to find.
+                </div>
+                <div id="detectStatus" class="small mb-2" style="display:none;"></div>
+
+                <div id="streamTokens" style="display:none;">
+                    <div class="row g-2 mb-2">
+                        <div class="col-3">
+                            <label class="form-label mb-0 small">Weight start</label>
+                            <input type="number" class="form-control form-control-sm tok" id="tokWeightStart" min="0" />
+                        </div>
+                        <div class="col-3">
+                            <label class="form-label mb-0 small">Weight end</label>
+                            <input type="number" class="form-control form-control-sm tok" id="tokWeightEnd" min="0" />
+                        </div>
+                        <div class="col-3">
+                            <label class="form-label mb-0 small">Motion col</label>
+                            <input type="number" class="form-control form-control-sm tok" id="tokMotionIndex" min="0" placeholder="none" />
+                        </div>
+                        <div class="col-3">
+                            <label class="form-label mb-0 small">Motion char</label>
+                            <input type="text" class="form-control form-control-sm tok" id="tokMotionChar" maxlength="1" placeholder="M" />
+                        </div>
+                    </div>
+                    <div class="row g-2 mb-2">
+                        <div class="col-3">
+                            <label class="form-label mb-0 small">Sign col</label>
+                            <input type="number" class="form-control form-control-sm tok" id="tokSignIndex" min="0" placeholder="none" />
+                        </div>
+                        <div class="col-3">
+                            <label class="form-label mb-0 small">Negative char</label>
+                            <input type="text" class="form-control form-control-sm tok" id="tokSignNegChar" maxlength="1" placeholder="-" />
+                        </div>
+                        <div class="col-6 d-flex align-items-end">
+                            <button type="button" class="btn btn-outline-secondary btn-sm py-0 w-100" onclick="clearStreamTokens()">
+                                Clear — use brand format instead
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-text small mb-1">
+                        Columns are 0-based and counted in characters. The preview updates as you type.
+                    </div>
+                </div>
+
+                <!-- Captured frames with the current slice highlighted. This is the
+                     part that makes the columns above meaningful. -->
+                <div id="detectFrames" style="display:none;">
+                    <div class="bg-dark text-light p-2 rounded" style="font-family:'Courier New',monospace;font-size:12px;max-height:220px;overflow:auto;">
+                        <table class="table table-sm table-dark table-borderless mb-0" style="font-family:inherit;font-size:inherit;">
+                            <thead>
+                                <tr class="text-muted"><th style="width:60px;">Col</th><th>Frame</th><th style="width:110px;">Parses as</th></tr>
+                            </thead>
+                            <tbody id="detectFrameRows"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
@@ -215,12 +284,17 @@
                     <div id="liveWeightStatus" style="font-size:1.2rem;font-weight:bold;text-align:center;letter-spacing:2px;min-height:1.4em;margin-top:8px;"></div>
                 </div>
                 <div class="mt-3 text-start">
-                    <a class="small text-muted" data-bs-toggle="collapse" href="#rawDiag" role="button"><i class="fa fa-terminal"></i> Diagnostic</a>
+                    <a class="small text-muted" data-bs-toggle="collapse" href="#rawDiag" role="button" aria-expanded="false" aria-controls="rawDiag"><i class="fa fa-terminal"></i> Diagnostic</a>
                     <div class="collapse mt-1" id="rawDiag">
                         <div class="bg-dark text-light p-2 rounded" style="font-family:'Courier New',monospace;font-size:12px;">
-                            <div>Raw: <span id="diagRawText" style="color:#0f0;">--</span></div>
-                            <div>Hex: <span id="diagRawHex" style="color:#888;">--</span></div>
+                            <div>Feed: <span id="diagFeed" style="color:#0dcaf0;">--</span></div>
+                            <div>Raw: <span id="diagRawText" style="color:#0f0;word-break:break-all;">--</span></div>
+                            <div>Hex: <span id="diagRawHex" style="color:#888;word-break:break-all;">--</span></div>
                             <div>Parsed: <span id="diagParsed" style="color:#ff0;">--</span></div>
+                            <div>Status: <span id="diagStatus" style="color:#0f0;">--</span></div>
+                            <div>Ok: <span id="diagOk" style="color:#ff0;">--</span></div>
+                            <div>Motion: <span id="diagMotion" style="color:#ff0;">--</span></div>
+                            <div>Last Update: <span id="diagLastUpdate" style="color:#888;">--</span></div>
                         </div>
                     </div>
                 </div>
@@ -239,6 +313,11 @@
     var scaleBrands = [];
     var savedScaleId = '@(ViewBag.ScaleId ?? "")';
     var liveWeightScaleId = null;
+    var liveWeightServiceId = null;
+    var liveWeightLastReceived = 0;
+    var liveWeightStaleTimer = null;
+    var liveWeightPollTimer = null;
+    var liveWeightModalOpen = false;
 
     function escHtml(s) { return s ? s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') : ''; }
     function escAttr(s) { return s ? s.replace(/'/g,"\\'").replace(/"/g,'&quot;') : ''; }
@@ -268,46 +347,69 @@
     });
 
     connection.on('ScaleWeight', function (data) {
-        // Update live weight modal if open for this scale
-        if (liveWeightScaleId && data.scaleId === liveWeightScaleId) {
-            var weightVal = document.getElementById('liveWeightValue');
-            var weightUnit = document.getElementById('liveWeightUnit');
-            var status = document.getElementById('liveWeightStatus');
-            if (data.ok) {
-                weightVal.textContent = data.weight.toLocaleString();
-                weightVal.style.color = data.motion ? '#ffc107' : '#0f0';
-                weightUnit.style.color = data.motion ? '#cc9900' : '#0a0';
-
-                // Use the service-supplied status when it's more specific than the
-                // generic "Ok" / "Motion" defaults (e.g. "Below Zero", ">0<").
-                var statusText, statusColor;
-                if (data.status && data.status !== 'Ok' && data.status !== 'Motion') {
-                    statusText = String(data.status).toUpperCase();
-                    statusColor = '#0dcaf0'; // info cyan
-                } else if (data.motion) {
-                    statusText = 'MOTION';
-                    statusColor = '#ffc107';
-                } else {
-                    statusText = 'STABLE';
-                    statusColor = '#0a0';
-                }
-                status.innerHTML = '<span style="color:' + statusColor + ';">' + escHtml(statusText) + '</span>';
-            } else {
-                weightVal.textContent = '---';
-                weightVal.style.color = '#f00';
-                weightUnit.style.color = '#a00';
-                var errText = (data.status ? String(data.status).toUpperCase() : 'ERROR');
-                status.innerHTML = '<span style="color:#f00;">' + escHtml(errText) + '</span>';
-            }
-            // Update diagnostic raw response
-            var rawText = document.getElementById('diagRawText');
-            var rawHex = document.getElementById('diagRawHex');
-            var parsed = document.getElementById('diagParsed');
-            if (rawText) rawText.textContent = data.rawResponse || '--';
-            if (rawHex) rawHex.textContent = data.rawHex || '--';
-            if (parsed) parsed.textContent = 'weight=' + data.weight + ' motion=' + data.motion + ' ok=' + data.ok + ' status=' + data.status;
+        // Update live weight modal if open for this scale. Match on service
+        // *and* scale id: two reader services have independent scale-id spaces,
+        // so an id-only filter lets the other service's "truck-scale-1" flicker
+        // the weight on the modal opened to test this one.
+        if (liveWeightScaleId && data.scaleId === liveWeightScaleId &&
+            (!liveWeightServiceId || data.serviceId === liveWeightServiceId)) {
+            liveWeightLastReceived = Date.now();
+            renderLiveWeight(data);
+            setDiagnostics(data);
         }
     });
+
+    // Paints the big green readout. Shared by the SignalR feed and the
+    // simulator polling used for site scales with no hardware feed.
+    function renderLiveWeight(data) {
+        var weightVal = document.getElementById('liveWeightValue');
+        var weightUnit = document.getElementById('liveWeightUnit');
+        var status = document.getElementById('liveWeightStatus');
+        if (data.ok) {
+            weightVal.textContent = data.weight.toLocaleString();
+            weightVal.style.color = data.motion ? '#ffc107' : '#0f0';
+            weightUnit.style.color = data.motion ? '#cc9900' : '#0a0';
+
+            // Use the service-supplied status when it's more specific than the
+            // generic "Ok" / "Motion" defaults (e.g. "Below Zero", ">0<").
+            var statusText, statusColor;
+            if (data.status && data.status !== 'Ok' && data.status !== 'Motion') {
+                statusText = String(data.status).toUpperCase();
+                statusColor = '#0dcaf0'; // info cyan
+            } else if (data.motion) {
+                statusText = 'MOTION';
+                statusColor = '#ffc107';
+            } else {
+                statusText = 'STABLE';
+                statusColor = '#0a0';
+            }
+            status.innerHTML = '<span style="color:' + statusColor + ';">' + escHtml(statusText) + '</span>';
+        } else {
+            weightVal.textContent = '---';
+            weightVal.style.color = '#f00';
+            weightUnit.style.color = '#a00';
+            var errText = (data.status ? String(data.status).toUpperCase() : 'ERROR');
+            status.innerHTML = '<span style="color:#f00;">' + escHtml(errText) + '</span>';
+        }
+    }
+
+    // Fills the Diagnostic panel from a reading. Accepts the SignalR ScaleWeight
+    // payload or the /api/scale/weight JSON (which carries no raw frame).
+    function setDiagnostics(data) {
+        function put(id, text, color) {
+            var el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = (text === undefined || text === null || text === '') ? '--' : String(text);
+            if (color) el.style.color = color;
+        }
+        put('diagRawText', data.rawResponse);
+        put('diagRawHex', data.rawHex);
+        put('diagParsed', 'weight=' + data.weight + ' motion=' + data.motion + ' ok=' + data.ok);
+        put('diagStatus', data.status, '#0f0');
+        put('diagOk', data.ok === undefined ? null : String(data.ok));
+        put('diagMotion', data.motion === undefined ? null : String(data.motion));
+        put('diagLastUpdate', data.lastUpdate ? new Date(data.lastUpdate).toLocaleTimeString() : new Date().toLocaleTimeString());
+    }
 
     connection.on('ScaleCrudResult', function (data) {
         showToast(data.success ? 'success' : 'danger', data.message || (data.success ? 'Done' : 'Failed'));
@@ -459,6 +561,22 @@
     setTimeout(function () { if (Object.keys(connectedServices).length === 0) updateStatusBar(); }, 3000);
 
     // ===== RENDER SERVICES =====
+    // How this scale is wired up. A serial scale still carries the default TCP port
+    // in its row, so rendering "ip:port" unconditionally showed ":10001" for a scale
+    // actually sitting on COM4 — the connection column has to follow ConnectionType.
+    function connectionLabel(s) {
+        if (String(s.connectionType).toLowerCase() === 'serial') {
+            var port = s.serialPortName ? escHtml(s.serialPortName) : '<span class="text-danger">no port set</span>';
+            var line = [s.baudRate || 9600, s.dataBits || 8, (s.parity || 'None').charAt(0), s.stopBits || 1].join(',');
+            // Separator is a middot rather than the conventional at-sign: Razor parses
+            // that character even inside a script block, so writing it here literally
+            // is a compile error.
+            return port + ' <span class="text-muted">&middot; ' + escHtml(line) + '</span>';
+        }
+        if (!s.ipAddress) return '<span class="text-danger">no address set</span>';
+        return escHtml(s.ipAddress) + ':' + s.port;
+    }
+
     function renderServices() {
         var container = document.getElementById('servicesContainer');
         var html = '';
@@ -473,7 +591,7 @@
             html += ' <span class="text-muted">(' + cams.length + ' scale' + (cams.length !== 1 ? 's' : '') + ')</span></div>';
             html += '<button class="btn btn-outline-primary btn-sm" onclick="addScale(\'' + escAttr(serviceId) + '\')"><i class="fa fa-plus"></i> Add Scale</button>';
             html += '</div><div class="card-body p-0"><table class="table table-sm table-striped mb-0">';
-            html += '<thead><tr><th>Scale ID</th><th>Display Name</th><th>Brand</th><th>IP : Port</th>';
+            html += '<thead><tr><th>Scale ID</th><th>Display Name</th><th>Brand</th><th>Connection</th>';
             html += '<th>Active</th><th style="width:200px;">Actions</th></tr></thead><tbody>';
 
             cams.forEach(function (s) {
@@ -481,7 +599,7 @@
                 html += '<td>' + escHtml(s.scaleId) + '</td>';
                 html += '<td>' + escHtml(s.displayName) + '</td>';
                 html += '<td>' + escHtml(s.scaleBrand) + '</td>';
-                html += '<td>' + escHtml(s.ipAddress) + ':' + s.port + '</td>';
+                html += '<td>' + connectionLabel(s) + '</td>';
                 html += '<td>' + (s.active ? '<span class="text-success fw-bold">&#10003;</span>' : '<span class="text-muted">&#10007;</span>') + '</td>';
                 html += '<td>';
                 html += '<button class="btn btn-outline-info btn-sm me-1" onclick="showLiveWeight(\'' + escAttr(serviceId) + '\',\'' + escAttr(s.scaleId) + '\',\'' + escAttr(s.displayName) + '\')"><i class="fa fa-tachometer"></i> Live</button>';
@@ -606,7 +724,10 @@
                 + '<td><select class="form-select form-select-sm ss-pout">' + printerOptionsHtml(s.outboundPrinterId || '') + '</select></td>'
                 + '<td><input type="number" step="1" class="form-control form-control-sm ss-order" value="' + s.sortOrder + '"></td>'
                 + '<td class="text-center"><input type="checkbox" class="form-check-input ss-active"' + (s.active ? ' checked' : '') + '></td>'
-                + '<td class="text-end"><button type="button" class="btn btn-outline-danger btn-sm py-0" onclick="deleteSiteScale(' + s.id + ')">Delete</button></td>'
+                + '<td class="text-end">'
+                +   '<button type="button" class="btn btn-outline-info btn-sm py-0 me-1" title="Live weight and scale diagnostics" onclick="showSiteScaleLive(' + s.id + ')"><i class="fa fa-tachometer"></i> Live</button>'
+                +   '<button type="button" class="btn btn-outline-danger btn-sm py-0" onclick="deleteSiteScale(' + s.id + ')">Delete</button>'
+                + '</td>'
                 + '</tr>';
         });
         tbody.innerHTML = html;
@@ -786,6 +907,15 @@
         document.getElementById('scalePollingInterval').value = '750';
         document.getElementById('scaleTimeout').value = '1000';
         document.getElementById('scaleActive').value = 'true';
+
+        // A new scale starts with no stream tokens. Clear the frames first —
+        // clearStreamTokens re-renders, and it must not paint the previous
+        // scale's captured frames on the way through.
+        resetDetectUI();
+        clearStreamTokens();
+        document.getElementById('streamTokens').style.display = '';
+        requestSerialPorts(serviceId);
+
         toggleScaleBrandFields(true);
         new bootstrap.Modal('#scaleModal').show();
     }
@@ -817,6 +947,19 @@
         document.getElementById('scalePollingInterval').value = scale.pollingIntervalMs || 750;
         document.getElementById('scaleTimeout').value = scale.timeoutMs || 1000;
         document.getElementById('scaleActive').value = scale.active ? 'true' : 'false';
+
+        // Load whatever stream tokens this scale already has. Frames aren't carried
+        // over from a previous detect run — they described a different scale.
+        resetDetectUI();
+        setVal('tokWeightStart', scale.frameWeightStart);
+        setVal('tokWeightEnd', scale.frameWeightEnd);
+        setVal('tokMotionIndex', scale.frameMotionIndex);
+        setVal('tokMotionChar', scale.frameMotionChar);
+        setVal('tokSignIndex', scale.frameSignIndex);
+        setVal('tokSignNegChar', scale.frameSignNegChar);
+        document.getElementById('streamTokens').style.display = '';
+        requestSerialPorts(serviceId);
+
         toggleScaleBrandFields(false); // honor existing values, just show/hide field groups
         new bootstrap.Modal('#scaleModal').show();
     }
@@ -849,6 +992,18 @@
             active: document.getElementById('scaleActive').value === 'true'
         };
 
+        // Stream tokens. Sent even when empty so clearing them on an existing scale
+        // actually reverts it to brand-regex parsing rather than silently keeping
+        // the old columns.
+        var tok = readStreamTokens();
+        data.frameParseMode = tok.usable ? 'Positions' : 'Brand';
+        data.frameWeightStart = tok.usable ? tok.weightStart : null;
+        data.frameWeightEnd = tok.usable ? tok.weightEnd : null;
+        data.frameMotionIndex = tok.usable && tok.motionIndex >= 0 ? tok.motionIndex : null;
+        data.frameMotionChar = tok.usable && tok.motionIndex >= 0 ? tok.motionChar : null;
+        data.frameSignIndex = tok.usable && tok.signIndex >= 0 ? tok.signIndex : null;
+        data.frameSignNegChar = tok.usable && tok.signIndex >= 0 ? tok.signNegChar : null;
+
         if (!data.scaleId) { alert('Scale ID is required'); return; }
         if (connectionType === 'Serial' && !data.serialPortName) {
             alert('Serial Port is required for serial-connected scales (e.g. COM1, /dev/ttyUSB0)');
@@ -867,6 +1022,259 @@
         });
     }
 
+    // ===== AUTO-DETECT & STREAM TOKENS =====
+
+    // Frames from the last detect run. Kept client-side so retuning the columns
+    // re-parses instantly instead of making the operator re-detect each time.
+    var detectedFrames = [];
+    var detectRequestId = null;
+    var detectTimer = null;
+
+    function autoDetectFormat() {
+        var serviceId = document.getElementById('scaleModalServiceId').value;
+        if (!serviceId) { showToast('danger', 'No scale service selected.'); return; }
+
+        var brandKeyVal = document.getElementById('scaleBrand').value;
+        var def = findBrandDef(brandKeyVal);
+        var connectionType = (def && def.type === 'Serial') ? 'Serial' : 'TCP';
+
+        var probe = {
+            scaleId: document.getElementById('scaleScaleId').value.trim() || 'detect-probe',
+            connectionType: connectionType,
+            ipAddress: document.getElementById('scaleIp').value.trim(),
+            port: parseInt(document.getElementById('scalePort').value) || 10001,
+            serialPortName: document.getElementById('scaleSerialPortName').value.trim() || null,
+            baudRate: parseInt(document.getElementById('scaleBaudRate').value) || 9600,
+            dataBits: parseInt(document.getElementById('scaleDataBits').value) || 8,
+            parity: document.getElementById('scaleParity').value,
+            stopBits: parseInt(document.getElementById('scaleStopBits').value) || 1,
+            requestCommand: document.getElementById('scaleRequestCommand').value.trim() || null,
+            timeoutMs: parseInt(document.getElementById('scaleTimeout').value) || 1000
+        };
+
+        if (connectionType === 'Serial' && !probe.serialPortName) {
+            detectMessage('warning', 'Enter the serial port first (e.g. COM1 or /dev/ttyUSB0).');
+            return;
+        }
+        if (connectionType === 'TCP' && !probe.ipAddress) {
+            detectMessage('warning', 'Enter the IP address first.');
+            return;
+        }
+
+        // The hub broadcasts detect results to every browser, so tag this request and
+        // ignore anyone else's reply. See ScaleHub.DetectScaleFormat.
+        detectRequestId = 'det-' + Date.now() + '-' + Math.floor(Math.random() * 100000);
+        setDetectBusy(true);
+        detectMessage('info', '<i class="fa fa-spinner fa-spin me-1"></i>Listening to the scale…');
+
+        // The service captures for ~4s; allow generously more before giving up so a
+        // slow connect doesn't look like a failure.
+        detectTimer = setTimeout(function () {
+            detectRequestId = null;
+            setDetectBusy(false);
+            detectMessage('danger', 'The scale service did not answer. Check that it is still connected.');
+        }, 15000);
+
+        connection.invoke('DetectScaleFormat', serviceId, detectRequestId, probe).catch(function (err) {
+            clearDetectTimer();
+            detectRequestId = null;
+            setDetectBusy(false);
+            detectMessage('danger', 'Could not reach the scale service: ' + err);
+        });
+    }
+
+    connection.on('ScaleFormatDetectResult', function (payload) {
+        if (!detectRequestId || !payload || payload.requestId !== detectRequestId) return;
+        clearDetectTimer();
+        detectRequestId = null;
+        setDetectBusy(false);
+
+        var r = payload.result || {};
+        if (!r.ok) {
+            detectMessage('danger', escHtml(r.error || 'Detection failed.'));
+            return;
+        }
+
+        var d = r.detection || {};
+        detectedFrames = (d.preview || []).map(function (p) { return p.rawText; });
+
+        if (!d.ok) {
+            renderDetectFrames();
+            detectMessage('warning', escHtml(d.reason || 'No frames were captured.'));
+            return;
+        }
+
+        applyDetection(d);
+        renderDetectFrames();
+
+        // Say how many were analysed *and* how many are shown — the service caps the
+        // preview, so "captured 40" next to a 15-row table would look like a bug.
+        var msg = 'Analysed ' + d.framesAnalysed + ' frame' + (d.framesAnalysed === 1 ? '' : 's')
+                + ' of ' + d.frameLength + ' characters'
+                + (detectedFrames.length < d.framesAnalysed ? ' (showing ' + Math.min(detectedFrames.length, 15) + ')' : '')
+                + '. Confidence: <strong>' + escHtml(d.confidence) + '</strong>.';
+        if (d.reason) msg += ' ' + escHtml(d.reason);
+        if (d.matchedBrands && d.matchedBrands.length)
+            msg += ' Brand formats that also fit: ' + escHtml(d.matchedBrands.slice(0, 3).join(', '))
+                 + (d.matchedBrands.length > 3 ? ', …' : '') + '.';
+
+        detectMessage(d.confidence === 'High' ? 'success' : 'warning', msg);
+    });
+
+    // Fills the token boxes from a detection result. The operator still has to press
+    // Save — detection proposes, it never commits.
+    function applyDetection(d) {
+        setVal('tokWeightStart', d.weightStart);
+        setVal('tokWeightEnd', d.weightEnd);
+        setVal('tokMotionIndex', d.motionIndex);
+        setVal('tokMotionChar', d.motionChar);
+        setVal('tokSignIndex', d.signIndex);
+        setVal('tokSignNegChar', d.signNegChar);
+        document.getElementById('streamTokens').style.display = '';
+    }
+
+    function setVal(id, v) {
+        document.getElementById(id).value = (v === null || v === undefined) ? '' : v;
+    }
+
+    function readStreamTokens() {
+        function num(id) {
+            var raw = document.getElementById(id).value;
+            if (raw === '' || raw === null) return -1;
+            var n = parseInt(raw, 10);
+            return isNaN(n) ? -1 : n;
+        }
+        var start = num('tokWeightStart');
+        var end = num('tokWeightEnd');
+        return {
+            weightStart: start,
+            weightEnd: end,
+            motionIndex: num('tokMotionIndex'),
+            motionChar: document.getElementById('tokMotionChar').value || 'M',
+            signIndex: num('tokSignIndex'),
+            signNegChar: document.getElementById('tokSignNegChar').value || '-',
+            usable: start >= 0 && end >= start
+        };
+    }
+
+    function clearStreamTokens() {
+        ['tokWeightStart', 'tokWeightEnd', 'tokMotionIndex', 'tokMotionChar', 'tokSignIndex', 'tokSignNegChar']
+            .forEach(function (id) { document.getElementById(id).value = ''; });
+        renderDetectFrames();
+    }
+
+    // Mirrors ScaleFormatDetector.ParseByPositions so the preview shows exactly what
+    // the service will do with these columns. Kept deliberately simple — the browser
+    // only ever previews; the service remains the authority.
+    function parseByTokens(text, tok) {
+        if (!tok.usable || tok.weightStart >= text.length) return { ok: false, status: 'Parse error' };
+        var end = Math.min(tok.weightEnd, text.length - 1);
+        var slice = text.substring(tok.weightStart, end + 1);
+        var cleaned = slice.replace(/[^0-9.+-]/g, '');
+        var w = parseFloat(cleaned);
+        if (cleaned === '' || isNaN(w)) return { ok: false, status: 'Parse error' };
+
+        if (tok.signIndex >= 0 && tok.signIndex < text.length && text.charAt(tok.signIndex) === tok.signNegChar)
+            w = -Math.abs(w);
+
+        var motion = tok.motionIndex >= 0 && tok.motionIndex < text.length
+                  && text.charAt(tok.motionIndex).toUpperCase() === tok.motionChar.toUpperCase();
+        return { ok: true, weight: Math.round(w), motion: motion, status: motion ? 'Motion' : 'Ok' };
+    }
+
+    // Renders captured frames with the weight slice and motion column highlighted, so
+    // the column numbers above are something you can see rather than count out by hand.
+    function renderDetectFrames() {
+        var wrap = document.getElementById('detectFrames');
+        var tbody = document.getElementById('detectFrameRows');
+        if (!detectedFrames.length) { wrap.style.display = 'none'; return; }
+        wrap.style.display = '';
+
+        var tok = readStreamTokens();
+        var maxLen = Math.max.apply(null, detectedFrames.map(function (f) { return f.length; }));
+
+        // A ruler row makes "weight starts at column 5" checkable at a glance.
+        var ruler = '';
+        for (var i = 0; i < maxLen; i++) ruler += (i % 10 === 0) ? String(Math.floor(i / 10) % 10) : '·';
+        var html = '<tr><td class="text-muted">ruler</td><td colspan="2" class="text-muted" style="white-space:pre;">'
+                 + escHtml(ruler) + '</td></tr>';
+
+        html += detectedFrames.slice(0, 15).map(function (f, idx) {
+            var marked = '';
+            for (var i = 0; i < f.length; i++) {
+                var ch = escHtml(f.charAt(i) === ' ' ? '·' : f.charAt(i));
+                if (tok.usable && i >= tok.weightStart && i <= tok.weightEnd)
+                    marked += '<span style="background:#0a5;color:#fff;">' + ch + '</span>';
+                else if (tok.motionIndex >= 0 && i === tok.motionIndex)
+                    marked += '<span style="background:#c90;color:#000;">' + ch + '</span>';
+                else if (tok.signIndex >= 0 && i === tok.signIndex)
+                    marked += '<span style="background:#08c;color:#fff;">' + ch + '</span>';
+                else marked += ch;
+            }
+
+            var p = parseByTokens(f, tok);
+            var parsed = p.ok
+                ? '<span style="color:' + (p.motion ? '#ffc107' : '#0f0') + ';">'
+                  + p.weight.toLocaleString() + (p.motion ? ' M' : '') + '</span>'
+                : '<span class="text-danger">' + escHtml(p.status) + '</span>';
+
+            return '<tr><td class="text-muted">' + idx + '</td>'
+                 + '<td style="white-space:pre;">' + marked + '</td>'
+                 + '<td>' + parsed + '</td></tr>';
+        }).join('');
+
+        tbody.innerHTML = html;
+    }
+
+    function detectMessage(kind, html) {
+        var el = document.getElementById('detectStatus');
+        el.style.display = '';
+        el.className = 'small mb-2 alert alert-' + kind + ' py-1 px-2';
+        el.innerHTML = html;
+    }
+
+    function setDetectBusy(busy) {
+        var btn = document.getElementById('btnAutoDetect');
+        btn.disabled = busy;
+        btn.innerHTML = busy
+            ? '<i class="fa fa-spinner fa-spin"></i> Listening…'
+            : '<i class="fa fa-magic"></i> Auto-Detect';
+    }
+
+    function clearDetectTimer() {
+        if (detectTimer) { clearTimeout(detectTimer); detectTimer = null; }
+    }
+
+    // Retuning any column re-parses the captured frames immediately.
+    document.querySelectorAll('#streamTokens .tok').forEach(function (el) {
+        el.addEventListener('input', renderDetectFrames);
+    });
+
+    // Serial ports offered by the selected service, for the port picker.
+    connection.on('ScaleSerialPortsReceived', function (data) {
+        var list = document.getElementById('scalePortList');
+        list.innerHTML = ((data && data.ports) || []).map(function (p) {
+            return '<option value="' + escAttr(p) + '"></option>';
+        }).join('');
+    });
+
+    function requestSerialPorts(serviceId) {
+        if (!serviceId) return;
+        connection.invoke('RequestScaleSerialPorts', serviceId).catch(function () { });
+    }
+
+    // Detection state belongs to one scale — never carry frames from the last
+    // scale into the next modal, where the columns would mean nothing.
+    function resetDetectUI() {
+        clearDetectTimer();
+        detectRequestId = null;
+        detectedFrames = [];
+        setDetectBusy(false);
+        document.getElementById('detectStatus').style.display = 'none';
+        document.getElementById('detectFrames').style.display = 'none';
+        document.getElementById('detectFrameRows').innerHTML = '';
+    }
+
     function deleteScale(serviceId, scaleId) {
         if (!confirm('Delete scale "' + scaleId + '"?')) return;
         connection.invoke('DeleteScaleFromService', serviceId, scaleId).catch(function (err) {
@@ -875,21 +1283,92 @@
     }
 
     // ===== LIVE WEIGHT =====
+    // Opens the live-weight/diagnostic modal against a hardware feed. Called
+    // from the reader-service rows, and from the Site Scales rows via
+    // showSiteScaleLive() once the site scale's feed has been resolved.
     function showLiveWeight(serviceId, scaleId, displayName) {
+        openLiveWeightModal(displayName || scaleId, (serviceId ? serviceId + ' : ' : '') + scaleId);
         liveWeightScaleId = scaleId;
-        document.getElementById('liveWeightScaleName').textContent = displayName || scaleId;
+        liveWeightServiceId = serviceId || null;
+    }
+
+    // A site scale with no hardware feed is driven by the per-scale simulator
+    // in Demo Mode — no SignalR frames arrive for it, so poll the same endpoint
+    // the Live Weight column uses. Raw/Hex stay blank: there is no wire frame.
+    function showSiteScaleLive(dbId) {
+        var scale = siteScales.find(function (x) { return x.id === dbId; });
+        if (!scale) return;
+
+        if (scale.hardwareId) {
+            var parts = String(scale.hardwareId).split(':');
+            showLiveWeight(parts[0], parts.slice(1).join(':'), scale.name);
+            return;
+        }
+
+        openLiveWeightModal(scale.name, 'Simulator / none — no hardware feed');
+        liveWeightPollTimer = setInterval(function () {
+            $.getJSON('/api/scale/weight?scale=' + dbId, function (d) {
+                if (liveWeightPollTimer === null) return;
+                liveWeightLastReceived = Date.now();
+                renderLiveWeight(d);
+                setDiagnostics(d);
+            });
+        }, 500);
+    }
+
+    function openLiveWeightModal(displayName, feedLabel) {
+        stopLiveWeightFeeds();
+        liveWeightLastReceived = 0;
+        document.getElementById('liveWeightScaleName').textContent = displayName;
         document.getElementById('liveWeightValue').textContent = '0';
         document.getElementById('liveWeightValue').style.color = '#0f0';
         document.getElementById('liveWeightUnit').style.color = '#0a0';
         document.getElementById('liveWeightStatus').innerHTML = '<span style="color:#888;">Waiting...</span>';
-        document.getElementById('diagRawText').textContent = '--';
-        document.getElementById('diagRawHex').textContent = '--';
-        document.getElementById('diagParsed').textContent = '--';
-        new bootstrap.Modal('#liveWeightModal').show();
+        document.getElementById('diagFeed').textContent = feedLabel || '--';
+        ['diagRawText', 'diagRawHex', 'diagParsed', 'diagStatus', 'diagOk', 'diagMotion', 'diagLastUpdate']
+            .forEach(function (id) { document.getElementById(id).textContent = '--'; });
 
-        document.getElementById('liveWeightModal').addEventListener('hidden.bs.modal', function () {
-            liveWeightScaleId = null;
-        }, { once: true });
+        // The modal has two entry points now (a reader-service row and a site
+        // scale row), so it can be re-opened while already up. Show it only
+        // once — a second show() stacks another backdrop that nothing removes,
+        // leaving the page dimmed and unclickable after close. Guard on our own
+        // flag rather than the .show class: that class isn't set until the fade
+        // transition ticks, so a class check still lets the second show through.
+        if (!liveWeightModalOpen) {
+            liveWeightModalOpen = true;
+            bootstrap.Modal.getOrCreateInstance(document.getElementById('liveWeightModal')).show();
+        }
+        liveWeightStaleTimer = setInterval(checkLiveWeightStale, 1000);
+    }
+
+    // Registered once, not per-open, so repeated opens can't stack listeners.
+    document.getElementById('liveWeightModal')
+        .addEventListener('hidden.bs.modal', function () {
+            liveWeightModalOpen = false;
+            stopLiveWeightFeeds();
+        });
+
+    // Detaches whatever feed the modal was showing. Called both when it closes
+    // and when it is re-pointed at another scale, so it must not touch
+    // liveWeightModalOpen — the re-point path needs that flag left standing.
+    function stopLiveWeightFeeds() {
+        liveWeightScaleId = null;
+        liveWeightServiceId = null;
+        if (liveWeightStaleTimer) { clearInterval(liveWeightStaleTimer); liveWeightStaleTimer = null; }
+        if (liveWeightPollTimer) { clearInterval(liveWeightPollTimer); liveWeightPollTimer = null; }
+    }
+
+    // No frame in 5 seconds means the reader service stopped feeding this
+    // scale — say so instead of leaving the last good weight on screen.
+    function checkLiveWeightStale() {
+        if (liveWeightLastReceived === 0) return; // nothing received yet; still "Waiting..."
+        if (Date.now() - liveWeightLastReceived <= 5000) return;
+        document.getElementById('liveWeightValue').textContent = '---';
+        document.getElementById('liveWeightValue').style.color = '#f00';
+        document.getElementById('liveWeightUnit').style.color = '#a00';
+        document.getElementById('liveWeightStatus').innerHTML = '<span style="color:#f00;">NOT CONNECTED</span>';
+        document.getElementById('diagStatus').textContent = 'Not Connected';
+        document.getElementById('diagStatus').style.color = '#f00';
     }
 
     // ===== TOAST =====

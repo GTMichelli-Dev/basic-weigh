@@ -67,6 +67,17 @@
   --bw-btn-action-text: #e2e8f0;
   --bw-sim-bg: #2d2a1a;
   --bw-sim-border: #ffc107;
+
+  /* Bootstrap 5.3 ships its own dark palette but keys it off [data-bs-theme],
+     which this app never sets — it themes with [data-theme]. Left alone,
+     Bootstrap keeps its LIGHT tokens, so .text-muted and .form-text render
+     near-black (rgba(33,37,41,.75)) on our dark surfaces: 1.05:1 contrast,
+     i.e. invisible. Help text, table headers and the Live Weight modal's
+     Diagnostic toggle all disappeared this way. Point Bootstrap's text tokens
+     at our own muted colour — 5.7:1 on the dark modal background. */
+  --bs-secondary-color: var(--bw-text-muted);
+  --bs-secondary-color-rgb: 148, 163, 184;
+  --bs-tertiary-color: var(--bw-text-muted);
 }
 
 /* Earth Theme (Brown, Black & Green) */

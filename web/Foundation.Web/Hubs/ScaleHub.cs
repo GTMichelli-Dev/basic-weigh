@@ -453,6 +453,41 @@ public class ScaleHub : Hub
         await Clients.All.SendAsync("ScaleCrudResult", result);
     }
 
+    // ===== SCALE COMMISSIONING (Auto-Detect + port picker) =====
+
+    /// <summary>
+    /// Ask a scale service which serial ports its machine has, so the setup screen
+    /// can offer them instead of making the operator type "/dev/ttyUSB0" from memory.
+    /// </summary>
+    public async Task RequestScaleSerialPorts(string serviceId)
+    {
+        await Clients.Group($"Scale_{serviceId}").SendAsync("GetSerialPorts");
+    }
+
+    public async Task ScaleSerialPortsResponse(object ports)
+    {
+        await Clients.All.SendAsync("ScaleSerialPortsReceived", ports);
+    }
+
+    /// <summary>
+    /// Auto-Detect: have the scale service open a temporary connection with the
+    /// settings the operator is typing and report what the indicator streams.
+    ///
+    /// The result comes back on Clients.All like every other response in this hub, so
+    /// the browser passes a requestId it generated and ignores payloads carrying
+    /// anyone else's. Without that, two operators detecting at once would each see the
+    /// other's frames land in their modal.
+    /// </summary>
+    public async Task DetectScaleFormat(string serviceId, string requestId, object connectionConfig)
+    {
+        await Clients.Group($"Scale_{serviceId}").SendAsync("DetectFormat", requestId, connectionConfig);
+    }
+
+    public async Task ScaleFormatDetectResult(object result)
+    {
+        await Clients.All.SendAsync("ScaleFormatDetectResult", result);
+    }
+
     // ===== RFID CARD READER SERVICE =====
 
     // Track connected reader services: connectionId -> serviceId
