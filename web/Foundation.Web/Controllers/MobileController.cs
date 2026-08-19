@@ -91,6 +91,15 @@ public class MobileController : Controller
         bin = t.Bin
     };
 
+    /// <summary>Custom-field values already on a ticket, keyed by field id, so
+    /// the weigh-out screen can show and change what weigh-in captured.</summary>
+    private Dictionary<string, string> TicketCustomValues(string ticket) =>
+        _db.TransactionCustomValues
+            .Where(v => v.Ticket == ticket)
+            .AsEnumerable()
+            .GroupBy(v => v.CustomFieldId)
+            .ToDictionary(g => g.Key.ToString(), g => g.Last().Value ?? "");
+
     /// <summary>
     /// What the phone should show on load: the open ticket it is already
     /// carrying, if any.
@@ -99,7 +108,11 @@ public class MobileController : Controller
     public IActionResult Session()
     {
         var open = OpenTicket();
-        return Json(new { openTicket = open == null ? null : TicketPayload(open) });
+        return Json(new
+        {
+            openTicket = open == null ? null : TicketPayload(open),
+            customFields = open == null ? null : TicketCustomValues(open.Ticket)
+        });
     }
 
     /// <summary>
@@ -201,7 +214,12 @@ public class MobileController : Controller
         // orphan the first, so refuse and let the phone re-sync.
         var existing = OpenTicket();
         if (existing != null)
-            return Conflict(new { message = "This phone already has an open ticket.", openTicket = TicketPayload(existing) });
+            return Conflict(new
+            {
+                message = "This phone already has an open ticket.",
+                openTicket = TicketPayload(existing),
+                customFields = TicketCustomValues(existing.Ticket)
+            });
 
         var setup = _db.AppSetup.First();
         var scale = SiteScales.Resolve(_db, request.ScaleId);
@@ -295,7 +313,13 @@ public class MobileController : Controller
             netWeight = transaction.NetWeight,
             dateOut = transaction.DateOut.AsUtc(),
             tareApplied,
-            retainedTare = usableTare
+            retainedTare = usableTare,
+            // The ticket as stored, not as posted: rules like Lock Bin to
+            // Commodity fill in fields server-side, and the phone has to weigh
+            // out against what was actually written or it will show — and then
+            // save — blanks over them.
+            openTicket = tareApplied ? null : TicketPayload(transaction),
+            customFields = tareApplied ? null : TicketCustomValues(ticketNumber)
         });
     }
 
@@ -337,13 +361,18 @@ public class MobileController : Controller
         transaction.DateOut = DateTime.UtcNow;
         transaction.ManualOutbound = false;
 
-        // Outbound-only prompts can override what was captured at weigh-in.
-        // Empty / null means "no change".
-        if (!string.IsNullOrEmpty(request.Destination)) transaction.Destination = request.Destination;
-        if (!string.IsNullOrEmpty(request.Commodity))   transaction.Commodity   = request.Commodity;
-        if (!string.IsNullOrEmpty(request.Customer))    transaction.Customer    = request.Customer;
-        if (!string.IsNullOrEmpty(request.Location))    transaction.Location    = request.Location;
-        if (!string.IsNullOrEmpty(request.Bin))         transaction.Bin         = request.Bin;
+        // The weigh-out screen lets the driver correct any field the ticket
+        // carries, not just the ones configured as outbound prompts. Null means
+        // the phone did not send the field at all and it keeps its weigh-in
+        // value; an empty string is an explicit "clear this", which is the only
+        // way to undo a wrong entry from the way in.
+        transaction.Carrier     = Applied(request.Carrier,     transaction.Carrier);
+        transaction.TruckId     = Applied(request.TruckId,     transaction.TruckId);
+        transaction.Destination = Applied(request.Destination, transaction.Destination);
+        transaction.Commodity   = Applied(request.Commodity,   transaction.Commodity);
+        transaction.Customer    = Applied(request.Customer,    transaction.Customer);
+        transaction.Location    = Applied(request.Location,    transaction.Location);
+        transaction.Bin         = Applied(request.Bin,         transaction.Bin);
 
         var setup = _setupCache.Get();
         if (BinInventory.ValidateTicket(_db, setup, transaction) is { } binLockError)
@@ -353,6 +382,22 @@ public class MobileController : Controller
         // reused value would keep restamping today's date on a number that was
         // last actually measured days ago, defeating the staleness expiry.
         if (setup.UseRetainedTare && !reusedTare.HasValue) UpdateRetainedTare(transaction);
+
+        // Custom fields the driver corrected on the way out replace what weigh-in
+        // stored. Only the ids the phone sent are touched, so a field it never
+        // showed cannot be wiped by omission.
+        if (request.CustomFields is { Count: > 0 })
+        {
+            var ids = request.CustomFields.Keys
+                .Select(k => int.TryParse(k, out var id) ? id : -1)
+                .Where(id => id > 0)
+                .ToHashSet();
+            var stale = _db.TransactionCustomValues
+                .Where(v => v.Ticket == transaction.Ticket && ids.Contains(v.CustomFieldId));
+            _db.TransactionCustomValues.RemoveRange(stale);
+            _db.SaveChanges();
+            KioskLists.SaveCustomFields(_db, transaction.Ticket, request.CustomFields);
+        }
 
         _db.SaveChanges();
         FormulaFields.RecomputeAndSave(_db, transaction);
@@ -399,6 +444,13 @@ public class MobileController : Controller
         await _hub.Clients.All.SendAsync("TicketVoided", new { ticket = transaction.Ticket });
         return Json(new { voided = true, ticket = transaction.Ticket });
     }
+
+    /// <summary>
+    /// Fold one edited field into the ticket. Null leaves the existing value
+    /// alone; an empty string clears it; anything else replaces it.
+    /// </summary>
+    private static string? Applied(string? sent, string? existing) =>
+        sent == null ? existing : (sent.Trim().Length == 0 ? null : sent.Trim());
 
     private async Task SendCameraCapture(string ticketId, string direction, string? cameraIdSetting)
     {
@@ -478,6 +530,13 @@ public class MobileController : Controller
         /// <summary>Close the load on the truck's stored empty weight instead of
         /// the live scale reading. The server supplies the value.</summary>
         public bool UseRetainedTare { get; set; }
+        /// <summary>Corrections to what weigh-in captured. Null on a field means
+        /// the phone left it alone; empty string clears it.</summary>
+        public string? Carrier { get; set; }
+        public string? TruckId { get; set; }
+        /// <summary>Custom field values keyed by field id. Only the ids present
+        /// are replaced.</summary>
+        public Dictionary<string, string>? CustomFields { get; set; }
         // Outbound-only prompt values. Each is optional — empty means the driver
         // wasn't prompted, or skipped, and the weigh-in value is preserved.
         public string? Destination { get; set; }

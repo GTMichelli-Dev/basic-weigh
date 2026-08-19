@@ -632,6 +632,7 @@
     var tarePromise = null;    // in-flight lookup, so the ask can wait on it
     var useTareChoice = null;  // true / false once the driver has answered
     var openTicketTare = null; // stored tare for the open ticket's truck, if any
+    var ticketCustomValues = {}; // custom-field values already on the open ticket
 
     var STD_LABELS = {
         carrier: 'Carrier', truck: 'Truck ID', commodity: 'Commodity',
@@ -788,6 +789,7 @@
                 sites = scalesRes[0].sites || [];
                 var needsPicker = scalesRes[0].needsPicker;
                 openTicket = sessionRes[0].openTicket || null;
+                ticketCustomValues = sessionRes[0].customFields || {};
 
                 var saved = (getCookie(CK_SCALE) || '').split(':');
                 var savedSite = saved.length === 2 ? parseInt(saved[0]) : NaN;
@@ -967,6 +969,54 @@
         return p;
     }
 
+    /// Every field a ticket can carry, as prompts, regardless of which ones the
+    /// site asks on this leg. Weigh-out edits work from this so a wrong carrier
+    /// or truck can be corrected even where nothing is prompted outbound.
+    function allFieldPrompts(direction) {
+        var p = [
+            { key: 'carrier',     title: 'Select Carrier',     items: lists.carriers,     allowSkip: cfg.allowSkipCarrier },
+            { key: 'truck',       title: 'Select Truck',       items: [], loadFrom: 'carrier', allowSkip: cfg.allowSkipTruckId },
+            { key: 'commodity',   title: 'Select Commodity',   items: lists.commodities,  allowSkip: cfg.allowSkipCommodity },
+            { key: 'customer',    title: 'Select Customer',    items: lists.customers,    allowSkip: cfg.allowSkipCustomer },
+            { key: 'location',    title: 'Select Location',    items: lists.locations,    allowSkip: cfg.allowSkipLocation },
+            { key: 'destination', title: 'Select Destination', items: lists.destinations, allowSkip: cfg.allowSkipDestination }
+        ];
+        if (cfg.useBinInventory) {
+            p.push({ key: 'bin', title: 'Select Bin', items: lists.bins || [], allowSkip: cfg.allowSkipBin });
+        }
+        (lists.customFields || []).forEach(function (f) {
+            if (f.fieldType === 'Text') {
+                p.push({ key: 'cf' + f.id, cfId: f.id, title: 'Select ' + f.name,
+                         items: f.listValues || [], allItems: f.listValues || [],
+                         parentKey: cascadeParentKey(f.parentField),
+                         valueMap: f.parentField ? (f.valueMap || {}) : null,
+                         allowSkip: !f.required });
+            } else {
+                p.push({ key: 'cf' + f.id, cfId: f.id, title: 'Enter ' + f.name,
+                         type: 'number', integer: f.fieldType === 'Integer',
+                         min: f.minValue, max: f.maxValue, precision: f.precision,
+                         allowSkip: !f.required });
+            }
+        });
+        return p;
+    }
+
+    /// Pre-answer the weigh-out from what weigh-in stored, so each row shows the
+    /// current value and a tap changes it.
+    function seedAnswersFromTicket() {
+        if (!openTicket) return;
+        answers.carrier     = openTicket.carrier     || '';
+        answers.truck       = openTicket.truckId     || '';
+        answers.commodity   = openTicket.commodity   || '';
+        answers.customer    = openTicket.customer    || '';
+        answers.location    = openTicket.location    || '';
+        answers.destination = openTicket.destination || '';
+        answers.bin         = openTicket.bin         || '';
+        Object.keys(ticketCustomValues || {}).forEach(function (id) {
+            answers['cf' + id] = ticketCustomValues[id];
+        });
+    }
+
     function labelFor(key) {
         if (STD_LABELS[key]) return STD_LABELS[key];
         if (key.indexOf('cf') === 0) {
@@ -1068,10 +1118,17 @@
         // looked up before the driver reaches the confirmation.
         loadTareOffer(openTicket.carrier, openTicket.truckId);
         loadLists().always(function () {
-            // Carrier and truck came in on the ticket — never re-asked.
-            queue = buildPrompts('outbound').filter(function (p) {
+            // Every field the ticket carries is editable on the way out, so the
+            // confirm screen works from the full set rather than only the
+            // prompts this site happens to ask on the outbound leg.
+            queue = allFieldPrompts('outbound');
+            seedAnswersFromTicket();
+            // Only the configured outbound prompts are actually asked; the rest
+            // are pre-answered from the ticket and changed by tapping a row.
+            var ask = buildPrompts('outbound').filter(function (p) {
                 return p.key !== 'carrier' && p.key !== 'truck';
             });
+            ask.forEach(function (p) { delete answers[p.key]; });
             askMissingThenConfirm();
         });
     });
@@ -1085,6 +1142,25 @@
         nextPrompt();
     }
 
+    /// Resolve a prompt's choices, then show it. The truck list is fetched per
+    /// carrier rather than shipped with the lists, so it has to be loaded here —
+    /// including when the driver taps the Truck row on the confirmation, which
+    /// does not come through the queue at all.
+    function openPrompt(prompt, onUnavailable) {
+        if (prompt.loadFrom !== 'carrier') { renderPrompt(prompt); return; }
+        if (!answers.carrier) { onUnavailable('Choose a carrier first.'); return; }
+        $.getJSON('/api/mobile/trucks/' + encodeURIComponent(answers.carrier))
+            .done(function (trucks) {
+                if (!trucks || !trucks.length) {
+                    onUnavailable('No trucks are assigned to "' + answers.carrier + '" — see the office.');
+                    return;
+                }
+                prompt.items = trucks;
+                renderPrompt(prompt);
+            })
+            .fail(function () { onUnavailable('Could not load trucks. Try again.'); });
+    }
+
     function nextPrompt() {
         // Finishing a pass re-checks for gaps rather than going straight to the
         // confirm screen: answering one prompt can invalidate a child answered
@@ -1092,26 +1168,13 @@
         if (runIdx >= runList.length) { askMissingThenConfirm(); return; }
         var p = runList[runIdx];
 
-        // Trucks depend on the carrier answered a moment ago.
-        if (p.loadFrom === 'carrier') {
-            if (!answers.carrier) { runIdx++; nextPrompt(); return; }
-            $.getJSON('/api/mobile/trucks/' + encodeURIComponent(answers.carrier))
-                .done(function (trucks) {
-                    if (!trucks.length) {
-                        cancelFlow();
-                        banner('No trucks are assigned to "' + answers.carrier + '" — see the office.', 'err');
-                        return;
-                    }
-                    p.items = trucks;
-                    renderPrompt(p);
-                })
-                .fail(function () {
-                    cancelFlow();
-                    banner('Could not load trucks. Try again.', 'err');
-                });
-            return;
-        }
-        renderPrompt(p);
+        // No carrier to hang the truck list on — skip rather than fail.
+        if (p.loadFrom === 'carrier' && !answers.carrier) { runIdx++; nextPrompt(); return; }
+
+        openPrompt(p, function (msg) {
+            cancelFlow();
+            banner(msg, 'err');
+        });
     }
 
     function advance() {
@@ -1125,8 +1188,17 @@
 
         var items = itemsFor(prompt);
         // An empty list has nothing to ask — don't show a screen with only
-        // "None" on it. Record the skip so re-entry doesn't ask again.
+        // "None" on it.
         if (items.length === 0) {
+            // Mid-edit that must not count as an answer: the driver tapped a row
+            // to change it, and clearing the value they already had because the
+            // list came back empty would lose data they never touched.
+            if (editingKey) {
+                editingKey = null;
+                banner('No choices available for ' + labelFor(prompt.key) + '.', 'warn');
+                showConfirm();
+                return;
+            }
             if (!Object.prototype.hasOwnProperty.call(answers, prompt.key)) answers[prompt.key] = '';
             advance();
             return;
@@ -1165,6 +1237,7 @@
     }
 
     function pick(prompt, value) {
+        if (!flow) return;
         answers[prompt.key] = value;
 
         // Picking a holding bin answers the commodity too, when the commodity
@@ -1195,7 +1268,19 @@
         });
     }
 
-    $('#prompt-cancel').on('click', cancelFlow);
+    /// Backing out of a prompt. Reached from the confirm screen it undoes only
+    /// that edit — a driver opening a row to see the choices must not lose the
+    /// whole weighment by changing their mind.
+    function cancelPrompt() {
+        if (editingKey) {
+            editingKey = null;
+            showConfirm();
+            return;
+        }
+        cancelFlow();
+    }
+
+    $('#prompt-cancel').on('click', cancelPrompt);
 
     // ===== NUMBER KEYPAD =====
     var NUM_KEYS = ['1','2','3','4','5','6','7','8','9','.','0','⌫'];
@@ -1260,7 +1345,7 @@
         answers[p.key] = numValue.replace(/\.$/, '');
         advance();
     });
-    $('#num-cancel').on('click', cancelFlow);
+    $('#num-cancel').on('click', cancelPrompt);
 
     // ===== CONFIRM =====
     function showConfirm() {
@@ -1308,30 +1393,22 @@
                 $row.attr({ role: 'button', tabindex: '0' });
                 $row.on('click', function () {
                     editingKey = key;
-                    renderPrompt(prompt);
+                    openPrompt(prompt, function (msg) {
+                        editingKey = null;
+                        banner(msg, 'warn');
+                        showConfirm();
+                    });
                 });
             }
             $l.append($row);
         });
 
-        // Everything the ticket already carries from the way in. Read-only:
-        // these were captured at weigh-in and are not outbound prompts.
-        if (outbound && openTicket) {
-            TICKET_CONTEXT.forEach(function (c) {
-                if (keys.indexOf(c.answerKey) >= 0) return;   // already shown, editable
-                var v = openTicket[c.field];
-                if (v === undefined || v === null || v === '') return;
-                var $row = $('<div class="cf-row"></div>');
-                $('<span class="cf-label"></span>').text(c.label).appendTo($row);
-                $('<span class="cf-value"></span>').text(v).appendTo($row);
-                $l.append($row);
-            });
-            if (openTicket.dateIn) {
-                var $t = $('<div class="cf-row"></div>');
-                $('<span class="cf-label"></span>').text('Time In').appendTo($t);
-                $('<span class="cf-value"></span>').text(new Date(openTicket.dateIn).toLocaleString()).appendTo($t);
-                $l.append($t);
-            }
+        // Time in is the one thing on a weigh-out that is a fact, not a choice.
+        if (outbound && openTicket && openTicket.dateIn) {
+            var $t = $('<div class="cf-row"></div>');
+            $('<span class="cf-label"></span>').text('Time In').appendTo($t);
+            $('<span class="cf-value"></span>').text(new Date(openTicket.dateIn).toLocaleString()).appendTo($t);
+            $l.append($t);
         }
         show('confirm');
         refreshConfirmButton();
@@ -1347,18 +1424,6 @@
             $('#confirm-list').append($r);
         });
     }
-
-    /// Ticket fields shown read-only on the weigh-out confirmation, paired with
-    /// the prompt key that would supersede them if the site asks on the way out.
-    var TICKET_CONTEXT = [
-        { field: 'carrier',     answerKey: 'carrier',     label: 'Carrier' },
-        { field: 'truckId',     answerKey: 'truck',       label: 'Truck ID' },
-        { field: 'commodity',   answerKey: 'commodity',   label: 'Commodity' },
-        { field: 'customer',    answerKey: 'customer',    label: 'Customer' },
-        { field: 'location',    answerKey: 'location',    label: 'Location' },
-        { field: 'destination', answerKey: 'destination', label: 'Destination' },
-        { field: 'bin',         answerKey: 'bin',         label: 'Bin' }
-    ];
 
     /// Keep the net on the weigh-out confirmation tracking the live scale, so
     /// the number the driver approves is the number that gets saved.
@@ -1499,11 +1564,21 @@
         else saveWeighOut();
     }
 
+    /// A field's value for the save: null when the screen never held it, so the
+    /// server leaves the weigh-in value alone.
+    function edited(key) {
+        return Object.prototype.hasOwnProperty.call(answers, key) ? (answers[key] || '') : null;
+    }
+
     function customFieldPayload() {
         var out = {};
         (lists.customFields || []).forEach(function (f) {
             var v = answers['cf' + f.id];
-            if (v !== undefined && v !== null && v !== '') out[f.id] = String(v);
+            if (v === undefined || v === null) return;
+            // A weigh-out sends cleared fields too: the id has to be present for
+            // the server to know to replace what weigh-in stored.
+            if (v === '' && flow !== 'weighout') return;
+            out[f.id] = String(v);
         });
         return out;
     }
@@ -1539,18 +1614,24 @@
                 showDone(r, 'Weighed in and out on a retained tare.');
                 return;
             }
-            openTicket = {
+            // Use the server's copy of the ticket rather than the answers that
+            // were posted — rules applied on save (Lock Bin to Commodity, card
+            // fill-in) mean the two are not always the same, and the weigh-out
+            // screen now writes back every field it shows.
+            openTicket = r.openTicket || {
                 ticket: r.ticket, inWeight: r.inWeight, dateIn: new Date().toISOString(),
                 commodity: answers.commodity, customer: answers.customer,
                 carrier: answers.carrier, truckId: answers.truck,
                 location: answers.location, destination: answers.destination, bin: answers.bin
             };
+            ticketCustomValues = r.customFields || customFieldPayload();
             showOpenTicket();
             banner('Weighed in — ticket #' + r.ticket);
         }).fail(function (xhr) {
             if (xhr.status === 409 && xhr.responseJSON && xhr.responseJSON.openTicket) {
                 // Another tab or a stale view already opened a load.
                 openTicket = xhr.responseJSON.openTicket;
+                ticketCustomValues = xhr.responseJSON.customFields || {};
                 flow = null;
                 showOpenTicket();
                 banner('This phone already has an open ticket.', 'warn');
@@ -1569,11 +1650,19 @@
                 weight: scaleData.weight,
                 scaleId: scaleId,
                 useRetainedTare: useTareChoice === true,
-                destination: answers.destination || null,
-                commodity: answers.commodity || null,
-                customer: answers.customer || null,
-                location: answers.location || null,
-                bin: answers.bin || null
+                // Every field the driver could see, so a correction sticks.
+                // edited() sends null for a field the screen never held and an
+                // empty string for one deliberately cleared — the server tells
+                // those apart, which is what makes "set it back to nothing"
+                // possible at all.
+                carrier:     edited('carrier'),
+                truckId:     edited('truck'),
+                destination: edited('destination'),
+                commodity:   edited('commodity'),
+                customer:    edited('customer'),
+                location:    edited('location'),
+                bin:         edited('bin'),
+                customFields: customFieldPayload()
             })
         }).done(function (r) {
             flow = null;
