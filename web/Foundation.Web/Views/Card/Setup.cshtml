@@ -94,6 +94,22 @@
     .cs-toast-ok { background: #d1e7dd; color: #0f5132; border: 1px solid #badbcc; }
     .cs-toast-err { background: #f8d7da; color: #842029; border: 1px solid #f5c2c7; }
 
+    /* Confirmation dialog — same glove-width targets as the rest of the page. */
+    .cs-confirm { border-radius: 14px; }
+    .cs-confirm .modal-body { font-size: 1.05rem; }
+    .cs-confirm .modal-footer .btn {
+        flex: 1;
+        min-height: 54px;
+        font-size: 1.1rem;
+        font-weight: 700;
+        border-radius: 10px;
+    }
+    .cs-confirm .cs-missing-list {
+        margin: 10px 0 0;
+        padding-left: 20px;
+        font-weight: 700;
+    }
+
     @@media (min-width: 768px) {
         .cs-actionbar { position: static; border-top: none; padding: 0; margin-top: 8px; }
         .card-setup { padding-bottom: 0; }
@@ -168,6 +184,24 @@
         <div class="cs-actionbar">
             <button type="button" class="btn btn-outline-danger btn-release" id="btnRelease">Deactivate</button>
             <button type="button" class="btn btn-success" id="btnIssue">Save &amp; Issue</button>
+        </div>
+    </div>
+</div>
+
+<!-- Confirmation dialog. Replaces window.confirm so the prompt is readable on a
+     phone and matches the rest of the app — the native dialog renders at the top
+     of the screen in the browser's own styling, out of thumb reach. -->
+<div class="modal fade" id="csConfirmModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content cs-confirm">
+            <div class="modal-header">
+                <h5 class="modal-title" id="csConfirmTitle">Confirm</h5>
+            </div>
+            <div class="modal-body" id="csConfirmBody"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" id="csConfirmCancel" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="csConfirmOk">OK</button>
+            </div>
         </div>
     </div>
 </div>
@@ -418,31 +452,57 @@
             return f.required && !values[f.key];
         });
 
-        var proceed = missing.length === 0 || window.confirm(
-            'Not set on this card: ' + missing.map(function (f) { return f.label; }).join(', ') +
-            '.\n\nThe driver will be asked for these at the kiosk. Issue anyway?');
-        if (!proceed) return;
+        var ask = missing.length === 0
+            ? Promise.resolve(true)
+            : confirmDialog({
+                title: 'Fields Not Set',
+                // A list beats a comma-joined sentence here: the operator is
+                // deciding whether to walk back and fill them in.
+                html: 'These are not set on this card:' +
+                      '<ul class="cs-missing-list">' +
+                      missing.map(function (f) { return '<li>' + escHtml(f.label) + '</li>'; }).join('') +
+                      '</ul>' +
+                      '<p class="mt-3 mb-0">The driver will be asked for them at the kiosk.</p>',
+                okText: 'Issue Anyway',
+                okClass: 'btn-warning'
+            });
 
-        setBusy(true);
-        fetch('/api/cards/' + currentCard.id + '/issue', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ values: values, recycleMode: document.getElementById('csRecycleMode').value })
-        })
-            .then(readJson)
-            .then(function (data) {
-                currentCard = data.card;
-                renderCard();
-                toast('ok', 'Card ' + currentCard.cardNumber + ' issued. Hand it to the driver.');
+        ask.then(function (proceed) {
+            if (!proceed) return;
+
+            setBusy(true);
+            fetch('/api/cards/' + currentCard.id + '/issue', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ values: values, recycleMode: document.getElementById('csRecycleMode').value })
             })
-            .catch(function (err) { toast('err', err.message || 'Could not issue the card.'); })
-            .finally(function () { setBusy(false); });
+                .then(readJson)
+                .then(function (data) {
+                    currentCard = data.card;
+                    renderCard();
+                    toast('ok', 'Card ' + currentCard.cardNumber + ' issued. Hand it to the driver.');
+                })
+                .catch(function (err) { toast('err', err.message || 'Could not issue the card.'); })
+                .finally(function () { setBusy(false); });
+        });
     }
 
     function release() {
         if (!currentCard) return;
-        if (!window.confirm('Deactivate card ' + currentCard.cardNumber + '? It will stop working at the kiosk.')) return;
 
+        confirmDialog({
+            title: 'Deactivate Card',
+            html: 'Deactivate card <strong>' + escHtml(currentCard.cardNumber) + '</strong>?' +
+                  '<p class="mt-2 mb-0">It will stop working at the kiosk until it is issued again.</p>',
+            okText: 'Deactivate',
+            okClass: 'btn-danger'
+        }).then(function (proceed) {
+            if (!proceed) return;
+            doRelease();
+        });
+    }
+
+    function doRelease() {
         setBusy(true);
         fetch('/api/cards/' + currentCard.id + '/release', { method: 'POST' })
             .then(readJson)
@@ -455,7 +515,56 @@
             .finally(function () { setBusy(false); });
     }
 
+    // ===== CONFIRM DIALOG =====
+
+    var confirmModal = null;
+    var confirmResolve = null;
+
+    /// Bootstrap-modal stand-in for window.confirm. Resolves true on OK and
+    /// false on Cancel, backdrop click, or Esc — so dismissing the dialog any
+    /// way at all is treated as "no", the same as the native prompt.
+    function confirmDialog(opts) {
+        var el = document.getElementById('csConfirmModal');
+
+        document.getElementById('csConfirmTitle').textContent = opts.title || 'Confirm';
+        document.getElementById('csConfirmBody').innerHTML = opts.html || '';
+
+        var ok = document.getElementById('csConfirmOk');
+        ok.textContent = opts.okText || 'OK';
+        ok.className = 'btn ' + (opts.okClass || 'btn-success');
+
+        if (!confirmModal) {
+            confirmModal = new bootstrap.Modal(el);
+
+            ok.addEventListener('click', function () {
+                settle(true);
+                confirmModal.hide();
+            });
+            // Fires for Cancel, the backdrop, and Esc alike. Runs after the OK
+            // handler has already settled, and settle() ignores the second call.
+            el.addEventListener('hidden.bs.modal', function () { settle(false); });
+        }
+
+        return new Promise(function (resolve) {
+            confirmResolve = resolve;
+            confirmModal.show();
+        });
+    }
+
+    function settle(answer) {
+        if (!confirmResolve) return;
+        var resolve = confirmResolve;
+        confirmResolve = null;
+        resolve(answer);
+    }
+
     // ===== HELPERS =====
+
+    function escHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
 
     function readJson(response) {
         return response.json().catch(function () { return {}; }).then(function (body) {

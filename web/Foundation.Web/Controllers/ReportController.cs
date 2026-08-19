@@ -36,6 +36,12 @@ public class ReportController : Controller
         if (!setup.UseBinInventory) return RedirectToAction("Index");
         ViewBag.CompanyName = setup.Header1 ?? "Foundation";
         ViewBag.BinCommodityLock = setup.BinCommodityLock;
+        // Fallback unit for the report's modals when the picked commodity has
+        // no reporting unit of its own. Invariant-formatted so the view can
+        // parseFloat it regardless of server culture.
+        var unit = DefaultUnit();
+        ViewBag.DefaultUnitName = unit.Name;
+        ViewBag.DefaultUnitPounds = unit.Pounds.ToString(System.Globalization.CultureInfo.InvariantCulture);
         return View();
     }
 
@@ -469,6 +475,12 @@ public class ReportController : Controller
             ? ("kg", 2.20462262)
             : ("lbs", 1.0);
 
+    /// <summary>Pounds -> the given reporting unit, at a sensible precision:
+    /// whole numbers for pounds, one decimal for anything larger (bushels,
+    /// CWT, kg) where a fraction of a unit still means something.</summary>
+    private static double ToUnits(long lbs, (string Name, double Pounds) unit) =>
+        Math.Round(lbs / unit.Pounds, unit.Pounds > 1 ? 1 : 0);
+
     [HttpGet("api/reports/bin-inventory")]
     public IActionResult GetBinInventory(DateTime? asOfDate)
     {
@@ -493,22 +505,34 @@ public class ReportController : Controller
         var defaultUnit = DefaultUnit();
         var results = rows
             .OrderBy(kv => kv.Key.Bin).ThenBy(kv => kv.Key.Commodity)
-            .Select(kv => new
+            .Select(kv =>
             {
-                bin = kv.Key.Bin,
-                commodity = kv.Key.Commodity == "" ? null : kv.Key.Commodity,
-                assignedCommodity = assigned.GetValueOrDefault(kv.Key.Bin),
-                loadsIn = kv.Value.LoadsIn,
-                lbsIn = kv.Value.LbsIn,
-                loadsOut = kv.Value.LoadsOut,
-                lbsOut = kv.Value.LbsOut,
-                adjustmentLbs = kv.Value.AdjustmentLbs,
-                onHandLbs = kv.Value.OnHand,
-                onHandTons = Math.Round(kv.Value.OnHand / 2000.0, 2),
-                unitName = units.TryGetValue(kv.Key.Commodity, out var u) ? u.Name : defaultUnit.Name,
-                onHandUnits = units.TryGetValue(kv.Key.Commodity, out var u2)
-                    ? Math.Round(kv.Value.OnHand / u2.Pounds, 1)
-                    : Math.Round(kv.Value.OnHand / defaultUnit.Pounds, 1)
+                // Every quantity is reported in the row commodity's own unit
+                // (Edit Tables -> Commodities): corn in bushels, barley in CWT.
+                // A commodity with no unit configured falls back to Setup ->
+                // Options -> Default Reporting Unit. Pounds are still sent so
+                // the grid can offer them as hidden columns and the modals can
+                // convert operator input back for the server.
+                var unit = units.GetValueOrDefault(kv.Key.Commodity, defaultUnit);
+                return new
+                {
+                    bin = kv.Key.Bin,
+                    commodity = kv.Key.Commodity == "" ? null : kv.Key.Commodity,
+                    assignedCommodity = assigned.GetValueOrDefault(kv.Key.Bin),
+                    loadsIn = kv.Value.LoadsIn,
+                    lbsIn = kv.Value.LbsIn,
+                    loadsOut = kv.Value.LoadsOut,
+                    lbsOut = kv.Value.LbsOut,
+                    adjustmentLbs = kv.Value.AdjustmentLbs,
+                    onHandLbs = kv.Value.OnHand,
+                    onHandTons = Math.Round(kv.Value.OnHand / 2000.0, 2),
+                    unitName = unit.Name,
+                    unitPounds = unit.Pounds,
+                    unitsIn = ToUnits(kv.Value.LbsIn, unit),
+                    unitsOut = ToUnits(kv.Value.LbsOut, unit),
+                    adjustmentUnits = ToUnits(kv.Value.AdjustmentLbs, unit),
+                    onHandUnits = ToUnits(kv.Value.OnHand, unit)
+                };
             })
             .ToList();
 
@@ -526,6 +550,11 @@ public class ReportController : Controller
             : null;
         commodity = string.IsNullOrEmpty(commodity) ? null : commodity;
 
+        // One commodity per detail grid, so one unit for every movement in it.
+        var unit = commodity != null
+            ? CommodityUnits().GetValueOrDefault(commodity, DefaultUnit())
+            : DefaultUnit();
+
         var tickets = _db.Transactions
             .Where(t => !t.Void && t.DateOut != null && t.OutWeight != null
                         && (t.Bin == bin || t.TransferToBin == bin))
@@ -539,13 +568,15 @@ public class ReportController : Controller
                 // its TransferToBin; ordinary tickets go by weigh direction.
                 var isTransfer = !string.IsNullOrEmpty(t.TransferToBin);
                 var incoming = isTransfer ? t.TransferToBin == bin : t.InWeight > t.OutWeight!.Value;
+                var lbs = (incoming ? 1 : -1) * (long)t.NetWeight;
                 return new
                 {
                     type = isTransfer ? "Transfer" : (incoming ? "In" : "Out"),
                     date = t.DateOut.AsUtc(),
                     reference = "Ticket #" + t.Ticket
                         + (isTransfer ? (incoming ? $" (from {t.Bin})" : $" (to {t.TransferToBin})") : ""),
-                    lbs = (incoming ? 1 : -1) * (long)t.NetWeight,
+                    lbs,
+                    units = ToUnits(lbs, unit),
                     adjustmentId = (int?)null
                 };
             });
@@ -561,6 +592,7 @@ public class ReportController : Controller
                 date = ((DateTime?)a.Date).AsUtc(),
                 reference = string.IsNullOrEmpty(a.Note) ? "Adjustment" : a.Note,
                 lbs = (long)a.AmountLbs,
+                units = ToUnits(a.AmountLbs, unit),
                 adjustmentId = (int?)a.Id
             });
 
