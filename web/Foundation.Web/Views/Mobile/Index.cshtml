@@ -293,6 +293,17 @@
             padding: 8px 4px;
             text-align: center;
         }
+        /* Why the commit button is dead, sized so the layout does not jump
+           when the reason appears and disappears with the scale. */
+        #confirm-blocked {
+            flex: 0 0 auto;
+            min-height: 16px;
+            margin-top: 6px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-align: center;
+            color: var(--amber);
+        }
         .tk-grid.two { grid-template-columns: 1fr 1fr; }
         .tk-cell .v { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
         .tk-cell .k { font-size: 0.62rem; letter-spacing: 1px; color: var(--muted); text-transform: uppercase; }
@@ -497,6 +508,7 @@
                 <div class="tk-cell net"><div class="v" id="confirm-net">0</div><div class="k">Net</div></div>
             </div>
             <div class="scroll" id="confirm-list"></div>
+            <div id="confirm-blocked"></div>
             <button class="btn btn-green" id="confirm-go" style="margin-top:8px;">Confirm &amp; Weigh</button>
             <div class="btn-row" style="margin-top:8px;">
                 <button class="btn btn-ghost" id="confirm-cancel">Cancel</button>
@@ -715,7 +727,21 @@
             $bar.addClass('w-ok');
         }
         refreshActionButtons();
-        if ($('#scr-confirm').hasClass('active')) updateConfirmWeights();
+        if ($('#scr-confirm').hasClass('active')) {
+            updateConfirmWeights();
+            refreshConfirmButton();
+        }
+    }
+
+    /// The commit button follows the scale: it is dead while the reading could
+    /// not legally be captured, so the driver is stopped before the tap rather
+    /// than bounced afterwards. A weigh-out that can fall back to a stored tare
+    /// stays live, since that path needs no reading.
+    function refreshConfirmButton() {
+        var blocked = captureBlocker();
+        var canUseTare = (flow === 'weighout' && tareOffer);
+        $('#confirm-go').prop('disabled', !!blocked && !canUseTare);
+        $('#confirm-blocked').text(blocked && !canUseTare ? blocked : '');
     }
 
     /// A weighment needs a truck actually on the scale and a healthy reading.
@@ -1308,6 +1334,7 @@
             }
         }
         show('confirm');
+        refreshConfirmButton();
         // The row lands when the lookup returns; the ask at commit time waits
         // on the same request, so a slow network can't skip the question.
         if (tarePromise) tarePromise.always(function () {
@@ -1362,6 +1389,7 @@
         $('#busy-text').text('Checking stored tare…');
         (tarePromise || $.Deferred().resolve().promise()).always(function () {
             if (!tareOffer) { useTareChoice = false; proceedWithWeighment(); return; }
+            refreshConfirmButton();
             askReuseTare();
         });
     }
@@ -1395,45 +1423,77 @@
         });
     }
 
+    /// Why the scale must not be read right now, or null when it is safe.
+    /// Consulted immediately before every reading rather than only when the
+    /// driver taps: the truck can roll off, or the feed can drop, during the
+    /// settle wait that follows.
+    function captureBlocker() {
+        if (scaleData.error) return 'Scale is not reporting — see the office.';
+        if (scaleData.motion) return 'Scale is still moving — wait for it to settle.';
+        if (scaleData.weight < ON_SCALE_LB) return 'Pull onto the scale before weighing.';
+        return null;
+    }
+
+    /// A weighment that closes on a stored tare takes no reading at all, so
+    /// none of the scale rules apply to it.
+    function readingRequired() {
+        return !(flow === 'weighout' && useTareChoice);
+    }
+
     function proceedWithWeighment() {
-        // Closing on a stored tare needs no live reading at all — the truck may
+        // Closing on a stored tare needs no live reading — the truck may
         // already be off the scale, or never have driven back onto it.
-        if (flow === 'weighout' && useTareChoice) {
+        if (!readingRequired()) {
             show('busy');
             capture();
             return;
         }
-        if (scaleData.error) { banner('Scale is not reporting — see the office.', 'err'); backToConfirm(); return; }
-        if (scaleData.weight < ON_SCALE_LB) {
-            banner('Pull onto the scale before confirming.', 'warn');
-            backToConfirm();
-            return;
-        }
+
+        // Motion on its own is worth waiting out: the truck is on the scale
+        // and still settling. A dead feed or an empty scale is a refusal.
+        if (scaleData.error) { abortWeighment('Scale is not reporting — see the office.'); return; }
+        if (scaleData.weight < ON_SCALE_LB) { abortWeighment('Pull onto the scale before weighing.'); return; }
+
         show('busy');
-        if (!scaleData.motion) { capture(); return; }
+        if (!captureBlocker()) { capture(); return; }
 
         $('#busy-text').text('Waiting for the scale to settle…');
         clearTimeout(motionTimer);
         var started = Date.now();
         (function waitMotion() {
-            if (!scaleData.motion && !scaleData.error) { capture(); return; }
+            if (!captureBlocker()) { capture(); return; }
+            // Re-checked every tick, not just once at the start.
+            if (scaleData.error) { abortWeighment('Scale is not reporting — see the office.'); return; }
+            if (scaleData.weight < ON_SCALE_LB) {
+                abortWeighment('The truck left the scale before the weight was taken.');
+                return;
+            }
             if (Date.now() - started > MOTION_TIMEOUT_MS) {
-                cancelFlow();
-                banner('Scale never settled. Hold still and try again.', 'warn');
+                abortWeighment('Scale never settled. Hold still and try again.');
                 return;
             }
             motionTimer = setTimeout(waitMotion, 250);
         })();
     }
 
-    /// A refused weighment goes back to the summary rather than dumping the
-    /// driver out of the flow — nothing they answered is lost.
-    function backToConfirm() {
+    /// A refused weighment goes back to the summary so nothing the driver
+    /// answered is lost. A flow with nothing to confirm (a weigh-in on a site
+    /// that asks no questions) has no summary to return to, so it ends.
+    function abortWeighment(reason) {
+        clearTimeout(motionTimer);
         useTareChoice = null;
-        show('confirm');
+        banner(reason, 'warn');
+        if ($('#confirm-list').children().length > 0) { show('confirm'); return; }
+        cancelFlow();
     }
 
     function capture() {
+        // Last gate before the reading is used. Everything upstream races with
+        // the scale poll; this runs in the same tick as the value being read.
+        if (readingRequired()) {
+            var blocked = captureBlocker();
+            if (blocked) { abortWeighment(blocked); return; }
+        }
         $('#busy-text').text('Saving…');
         if (flow === 'weighin') saveWeighIn();
         else saveWeighOut();

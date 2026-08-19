@@ -20,6 +20,15 @@ public class MobileController : Controller
     private const string TicketCookie = "bw_mobile_ticket";
     private const int SessionHours = 12;
 
+    /// <summary>
+    /// Lightest reading that can be a truck on the scale. The page refuses to
+    /// capture below this; this is the backstop for a stale page or a direct
+    /// post. Motion and scale errors are deliberately not re-checked here — by
+    /// the time the request lands the scale has moved on, and judging the
+    /// capture against a later reading would reject good weighments.
+    /// </summary>
+    private const int MinCaptureWeight = 1000;
+
     private readonly ScaleDbContext _db;
     private readonly IHubContext<ScaleHub> _hub;
     private readonly AppSetupCache _setupCache;
@@ -199,6 +208,9 @@ public class MobileController : Controller
         if (scale == null)
             return BadRequest(new { message = "No scale configured." });
 
+        if (request.Weight < MinCaptureWeight)
+            return BadRequest(new { message = "No truck on the scale — nothing to weigh in." });
+
         // Ensure ticket number doesn't collide with existing tickets
         while (_db.Transactions.Any(t => t.Ticket == setup.TicketNumber.ToString()))
         {
@@ -313,6 +325,11 @@ public class MobileController : Controller
                 return BadRequest(new { message = "That truck no longer has a stored empty weight. Weigh out on the scale." });
             reusedTare = tare;
         }
+
+        // A reused tare is a stored number, not a reading, so the floor only
+        // applies to a live weighment.
+        if (reusedTare == null && request.Weight < MinCaptureWeight)
+            return BadRequest(new { message = "No truck on the scale — nothing to weigh out." });
 
         transaction.OutWeight = reusedTare ?? request.Weight;
         // A reused tare was not measured here, so no scale gets the credit.
