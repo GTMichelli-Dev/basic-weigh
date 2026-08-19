@@ -1,0 +1,1679 @@
+@model Foundation.Web.Models.AppSetup
+@{
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#111418" />
+    <title>@(Model.Header1 ?? "Foundation") - Weigh</title>
+    <link rel="icon" href="/api/setup/icon" />
+    <style>
+        /* ============================================================
+           The whole page must fit one phone screen — the driver is
+           standing at the truck and cannot be asked to scroll to find
+           the button. Every screen is a flex column pinned to the
+           viewport; only the prompt list and the confirm summary
+           scroll, and they scroll inside their own box.
+           ============================================================ */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #111418;
+            --panel: #1b2027;
+            --panel-2: #232a33;
+            --line: #2f3843;
+            --text: #f2f5f8;
+            --muted: #8d9aa9;
+            --accent: #0d6efd;
+            --green: #1a9e4b;
+            --amber: #d9a406;
+            --red: #d33a3a;
+        }
+
+        html, body {
+            height: 100%;
+            overflow: hidden;
+            overscroll-behavior: none;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-text-size-adjust: 100%;
+        }
+
+        /* svh = viewport with the browser chrome showing, so the layout never
+           ends up taller than what the driver can actually see. */
+        #app {
+            height: 100vh;
+            height: 100svh;
+            display: flex;
+            flex-direction: column;
+            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+        }
+
+        /* ===== HEADER ===== */
+        #hdr {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: var(--panel);
+            border-bottom: 1px solid var(--line);
+            min-height: 44px;
+        }
+        #hdr img { height: 22px; width: auto; }
+        #hdr .co {
+            font-size: 0.95rem;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1 1 auto;
+        }
+        #hdr .scale-chip {
+            flex: 0 0 auto;
+            font-size: 0.72rem;
+            color: var(--muted);
+            background: var(--panel-2);
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            padding: 4px 10px;
+            max-width: 44vw;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        #hdr .scale-chip:active { background: var(--line); }
+        /* Way back to the full office dashboard. Deliberately small — the
+           driver's job is on this page; this is for whoever is running the
+           site from their phone. */
+        #hdr .hdr-btn {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 9px;
+            border: 1px solid var(--line);
+            background: var(--panel-2);
+            color: var(--muted);
+            text-decoration: none;
+        }
+        #hdr .hdr-btn svg { width: 18px; height: 18px; }
+        #hdr .hdr-btn:active { background: var(--line); color: var(--text); }
+        #hdr .hdr-btn.hidden { display: none; }
+
+        /* ===== WEIGHT BAR ===== */
+        #weight-bar {
+            flex: 0 0 auto;
+            text-align: center;
+            padding: 10px 12px 8px;
+            border-bottom: 1px solid var(--line);
+            background: var(--panel);
+        }
+        #weight-value {
+            font-size: 2.6rem;
+            font-weight: 700;
+            line-height: 1;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: -1px;
+        }
+        #weight-unit { font-size: 1.1rem; color: var(--muted); font-weight: 600; }
+        #weight-status {
+            font-size: 0.7rem;
+            letter-spacing: 1.5px;
+            font-weight: 700;
+            margin-top: 2px;
+            min-height: 14px;
+        }
+        .w-ok #weight-value { color: var(--text); }
+        .w-motion #weight-value { color: var(--amber); }
+        .w-motion #weight-status { color: var(--amber); }
+        .w-error #weight-value { color: var(--red); }
+        .w-error #weight-status { color: var(--red); }
+        /* Compact form used on screens that need the room for a list. */
+        #weight-bar.compact { padding: 5px 12px; }
+        #weight-bar.compact #weight-value { font-size: 1.5rem; }
+        #weight-bar.compact #weight-unit { font-size: 0.85rem; }
+        #weight-bar.compact #weight-status { display: none; }
+
+        /* ===== SCREENS ===== */
+        #screens { flex: 1 1 auto; min-height: 0; position: relative; }
+        .screen {
+            display: none;
+            position: absolute;
+            inset: 0;
+            flex-direction: column;
+            min-height: 0;
+            padding: 12px;
+        }
+        .screen.active { display: flex; }
+
+        .screen-title {
+            flex: 0 0 auto;
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+            text-align: center;
+        }
+        .screen-sub {
+            flex: 0 0 auto;
+            font-size: 0.8rem;
+            color: var(--muted);
+            text-align: center;
+            margin-bottom: 10px;
+        }
+        .spacer { flex: 1 1 auto; min-height: 0; }
+
+        /* ===== BUTTONS ===== */
+        .btn {
+            flex: 0 0 auto;
+            display: block;
+            width: 100%;
+            border: none;
+            border-radius: 12px;
+            padding: 16px;
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #fff;
+            background: var(--accent);
+            font-family: inherit;
+            cursor: pointer;
+            min-height: 56px;
+        }
+        .btn + .btn { margin-top: 8px; }
+        .btn:active { filter: brightness(1.25); }
+        .btn:disabled { opacity: 0.4; }
+        .btn-green { background: var(--green); }
+        .btn-red { background: var(--red); }
+        .btn-ghost {
+            background: transparent;
+            border: 1px solid var(--line);
+            color: var(--muted);
+            font-weight: 600;
+            font-size: 0.95rem;
+            min-height: 48px;
+            padding: 12px;
+        }
+        .btn-hero { min-height: 84px; font-size: 1.35rem; letter-spacing: 0.5px; }
+        .btn-row { flex: 0 0 auto; display: flex; gap: 8px; }
+        .btn-row .btn { margin-top: 0; }
+
+        /* ===== SCROLLING REGIONS (the only ones on the page) ===== */
+        .scroll {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            background: var(--panel);
+        }
+
+        .list-item {
+            padding: 15px 14px;
+            font-size: 1.05rem;
+            border-bottom: 1px solid var(--line);
+            min-height: 54px;
+            display: flex;
+            align-items: center;
+        }
+        .list-item:last-child { border-bottom: none; }
+        .list-item:active { background: var(--panel-2); }
+        .list-item.none { color: var(--muted); font-style: italic; }
+        /* The value carried over from the last load — pre-picked so a repeat
+           trip is one tap, but still changeable. */
+        .list-item.recalled {
+            border-left: 4px solid var(--accent);
+            font-weight: 600;
+        }
+        .list-item.recalled::after {
+            content: 'last used';
+            margin-left: auto;
+            font-size: 0.65rem;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            color: var(--accent);
+            font-weight: 700;
+        }
+
+        /* ===== CONFIRM ROWS ===== */
+        .cf-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+            min-height: 50px;
+        }
+        .cf-row:last-child { border-bottom: none; }
+        .cf-row:active { background: var(--panel-2); }
+        .cf-label { flex: 0 0 38%; font-size: 0.8rem; color: var(--muted); }
+        .cf-value { flex: 1 1 auto; font-size: 0.98rem; font-weight: 600; word-break: break-word; }
+        .cf-value.skipped { color: var(--muted); font-weight: 400; font-style: italic; }
+        .cf-edit { flex: 0 0 auto; color: var(--accent); font-size: 0.72rem; font-weight: 700; letter-spacing: 1px; }
+
+        /* ===== TICKET SUMMARY ===== */
+        .tk-badge {
+            flex: 0 0 auto;
+            text-align: center;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        .tk-badge .tk-no { font-size: 1.9rem; font-weight: 800; line-height: 1.1; }
+        .tk-badge .tk-lbl { font-size: 0.7rem; letter-spacing: 1.5px; color: var(--muted); text-transform: uppercase; }
+        .tk-grid {
+            flex: 0 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+        .tk-cell {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 8px 4px;
+            text-align: center;
+        }
+        .tk-grid.two { grid-template-columns: 1fr 1fr; }
+        .tk-cell .v { font-size: 1.05rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+        .tk-cell .k { font-size: 0.62rem; letter-spacing: 1px; color: var(--muted); text-transform: uppercase; }
+        .tk-cell.net .v { color: var(--green); }
+
+        /* ===== NUMBER KEYPAD ===== */
+        #num-readout {
+            flex: 0 0 auto;
+            text-align: center;
+            font-size: 2rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 8px;
+            min-height: 60px;
+        }
+        #num-error { flex: 0 0 auto; color: var(--red); font-size: 0.8rem; text-align: center; min-height: 16px; margin-bottom: 6px; }
+        #num-pad {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .num-key {
+            background: var(--panel-2);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text);
+            font-family: inherit;
+        }
+        .num-key:active { background: var(--line); }
+
+        /* ===== BANNER ===== */
+        #banner {
+            flex: 0 0 auto;
+            display: none;
+            padding: 9px 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-align: center;
+            background: var(--green);
+            color: #fff;
+        }
+        #banner.show { display: block; }
+        #banner.warn { background: var(--amber); color: #1a1a1a; }
+        #banner.err { background: var(--red); }
+
+        /* ===== MODAL ===== */
+        #modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            background: rgba(0,0,0,0.75);
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        #modal.show { display: flex; }
+        #modal .box {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 20px;
+            width: 100%;
+            max-width: 380px;
+            max-height: 80svh;
+            display: flex;
+            flex-direction: column;
+        }
+        #modal .box h3 { font-size: 1.1rem; margin-bottom: 8px; }
+        #modal .box p { font-size: 0.9rem; color: var(--muted); margin-bottom: 16px; line-height: 1.4; }
+
+        /* ===== SPINNER ===== */
+        .spin {
+            width: 42px; height: 42px;
+            border: 4px solid var(--line);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: sp 0.8s linear infinite;
+            margin: 0 auto 14px;
+        }
+        @@keyframes sp { to { transform: rotate(360deg); } }
+
+        /* ===== DEMO SIM ===== */
+        #sim {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 10px;
+            background: #000;
+            border-top: 1px solid var(--amber);
+            font-size: 0.7rem;
+            color: var(--amber);
+        }
+        #sim input[type=range] { flex: 1 1 auto; min-width: 0; }
+        #sim .v { font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
+
+        /* Very short screens (landscape, small handsets): shrink the hero. */
+        @@media (max-height: 560px) {
+            #weight-value { font-size: 2rem; }
+            .btn-hero { min-height: 64px; font-size: 1.15rem; }
+            .tk-badge .tk-no { font-size: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div id="hdr">
+        <img src="/api/setup/icon" alt="" />
+        <span class="co">@(Model.Header1 ?? "Foundation")</span>
+        <a class="hdr-btn" id="btn-dashboard" href="/" aria-label="Open the main dashboard" title="Main dashboard">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+            </svg>
+        </a>
+        <span class="scale-chip" id="scale-chip" style="display:none;"></span>
+    </div>
+
+    <div id="banner"></div>
+
+    <div id="weight-bar" class="w-ok">
+        <span id="weight-value">0</span><span id="weight-unit"> lb</span>
+        <div id="weight-status">&nbsp;</div>
+    </div>
+
+    <div id="screens">
+
+        <!-- BOOT -->
+        <div class="screen active" id="scr-boot">
+            <div class="spacer"></div>
+            <div style="text-align:center;">
+                <div class="spin"></div>
+                <div style="color:var(--muted);font-size:0.9rem;">Connecting&hellip;</div>
+            </div>
+            <div class="spacer"></div>
+        </div>
+
+        <!-- LOCATION / SCALE PICKER -->
+        <div class="screen" id="scr-picker">
+            <div class="screen-title" id="picker-title">Choose Location</div>
+            <div class="scroll" id="picker-list"></div>
+            <button class="btn btn-ghost" id="picker-back" style="margin-top:8px;display:none;">Back</button>
+        </div>
+
+        <!-- HOME: nothing weighed in -->
+        <div class="screen" id="scr-home">
+            <div class="spacer"></div>
+            <div class="screen-sub" id="home-hint">Pull onto the scale, then tap Weigh In.</div>
+            <button class="btn btn-green btn-hero" id="btn-weighin">WEIGH IN</button>
+            <div class="spacer"></div>
+        </div>
+
+        <!-- OPEN TICKET: weighed in, waiting to weigh out -->
+        <div class="screen" id="scr-open">
+            <div class="tk-badge">
+                <div class="tk-lbl">Ticket</div>
+                <div class="tk-no" id="open-ticket">—</div>
+            </div>
+            <div class="scroll" id="open-details"></div>
+            <div class="screen-sub" id="open-hint" style="margin:8px 0 0;"></div>
+            <button class="btn btn-green btn-hero" id="btn-weighout" style="margin-top:8px;">WEIGH OUT</button>
+            <button class="btn btn-ghost" id="btn-reset">Reset — cancel this weigh-in</button>
+        </div>
+
+        <!-- PROMPT: list -->
+        <div class="screen" id="scr-prompt">
+            <div class="screen-title" id="prompt-title">Select</div>
+            <div class="scroll" id="prompt-list"></div>
+            <div class="btn-row" style="margin-top:8px;">
+                <button class="btn btn-ghost" id="prompt-cancel">Cancel</button>
+                <button class="btn btn-ghost" id="prompt-skip" style="display:none;">Skip</button>
+            </div>
+        </div>
+
+        <!-- PROMPT: number keypad -->
+        <div class="screen" id="scr-number">
+            <div class="screen-title" id="num-title">Enter</div>
+            <div id="num-readout">0</div>
+            <div id="num-error">&nbsp;</div>
+            <div id="num-pad"></div>
+            <div class="btn-row">
+                <button class="btn btn-ghost" id="num-cancel">Cancel</button>
+                <button class="btn btn-green" id="num-done">Done</button>
+            </div>
+        </div>
+
+        <!-- CONFIRM -->
+        <div class="screen" id="scr-confirm">
+            <div class="screen-title" id="confirm-title">Confirm</div>
+            <!-- Weigh-out only: what the load comes to, before it is committed. -->
+            <div class="tk-grid two" id="confirm-weights" style="display:none;">
+                <div class="tk-cell"><div class="v" id="confirm-in">0</div><div class="k">Weighed In</div></div>
+                <div class="tk-cell net"><div class="v" id="confirm-net">0</div><div class="k">Net</div></div>
+            </div>
+            <div class="scroll" id="confirm-list"></div>
+            <button class="btn btn-green" id="confirm-go" style="margin-top:8px;">Confirm &amp; Weigh</button>
+            <div class="btn-row" style="margin-top:8px;">
+                <button class="btn btn-ghost" id="confirm-cancel">Cancel</button>
+                <button class="btn btn-ghost" id="confirm-editall">Change All</button>
+            </div>
+        </div>
+
+        <!-- BUSY: motion wait / saving -->
+        <div class="screen" id="scr-busy">
+            <div class="spacer"></div>
+            <div style="text-align:center;">
+                <div class="spin"></div>
+                <div id="busy-text" style="color:var(--muted);font-size:1rem;">Saving&hellip;</div>
+            </div>
+            <div class="spacer"></div>
+        </div>
+
+        <!-- DONE: load closed, offer the PDF -->
+        <div class="screen" id="scr-done">
+            <div class="tk-badge">
+                <div class="tk-lbl">Completed Ticket</div>
+                <div class="tk-no" id="done-ticket">—</div>
+            </div>
+            <div class="tk-grid">
+                <div class="tk-cell"><div class="v" id="done-gross">0</div><div class="k">Gross</div></div>
+                <div class="tk-cell"><div class="v" id="done-tare">0</div><div class="k">Tare</div></div>
+                <div class="tk-cell net"><div class="v" id="done-net">0</div><div class="k">Net</div></div>
+            </div>
+            <div class="scroll" id="done-details"></div>
+            <button class="btn" id="btn-pdf" style="margin-top:8px;">Save Ticket as PDF</button>
+            <button class="btn btn-ghost" id="btn-done">Done</button>
+        </div>
+
+    </div>
+
+    @if (Model.DemoMode)
+    {
+        <div id="sim">
+            <span>SIM</span>
+            <input type="range" id="simSlider" min="0" max="120000" step="100" value="0" />
+            <span class="v" id="simVal">0</span>
+            <label><input type="checkbox" id="simMotion" /> M</label>
+        </div>
+    }
+</div>
+
+<div id="modal">
+    <div class="box">
+        <h3 id="modal-title">Are you sure?</h3>
+        <p id="modal-text"></p>
+        <button class="btn btn-red" id="modal-ok">Yes</button>
+        <button class="btn btn-ghost" id="modal-cancel">No</button>
+    </div>
+</div>
+
+<script src="/lib/jquery/dist/jquery.min.js"></script>
+<script>
+(function () {
+    'use strict';
+
+    // ===== SETTINGS FROM SERVER =====
+    // Same prompt switches the kiosk obeys, so the phone asks the same
+    // questions the touchscreen at the scale would ask.
+    var cfg = {
+        promptCommodityOnInbound: @(Model.PromptKioskCommodityOnInbound.ToString().ToLower()),
+        promptCommodityOnOutbound: @(Model.PromptKioskCommodityOnOutbound.ToString().ToLower()),
+        allowSkipCommodity: @(Model.AllowSkipCommodity.ToString().ToLower()),
+        promptCustomerOnInbound: @(Model.PromptKioskCustomerOnInbound.ToString().ToLower()),
+        promptCustomerOnOutbound: @(Model.PromptKioskCustomerOnOutbound.ToString().ToLower()),
+        allowSkipCustomer: @(Model.AllowSkipCustomer.ToString().ToLower()),
+        promptCarrier: @(Model.PromptKioskCarrier.ToString().ToLower()),
+        allowSkipCarrier: @(Model.AllowSkipCarrier.ToString().ToLower()),
+        promptTruckId: @(Model.PromptKioskTruckId.ToString().ToLower()),
+        allowSkipTruckId: @(Model.AllowSkipTruckId.ToString().ToLower()),
+        promptLocationOnInbound: @(Model.PromptKioskLocationOnInbound.ToString().ToLower()),
+        promptLocationOnOutbound: @(Model.PromptKioskLocationOnOutbound.ToString().ToLower()),
+        allowSkipLocation: @(Model.AllowSkipLocation.ToString().ToLower()),
+        promptDestinationOnInbound: @(Model.PromptKioskDestinationOnInbound.ToString().ToLower()),
+        promptDestinationOnOutbound: @(Model.PromptKioskDestinationOnOutbound.ToString().ToLower()),
+        allowSkipDestination: @(Model.AllowSkipDestination.ToString().ToLower()),
+        useBinInventory: @(Model.UseBinInventory.ToString().ToLower()),
+        promptBinOnInbound: @(Model.PromptKioskBinOnInbound.ToString().ToLower()),
+        promptBinOnOutbound: @(Model.PromptKioskBinOnOutbound.ToString().ToLower()),
+        allowSkipBin: @(Model.AllowSkipBin.ToString().ToLower()),
+        binCommodityLock: @(Model.BinCommodityLock.ToString().ToLower()),
+        useRetainedTare: @(Model.UseRetainedTare.ToString().ToLower()),
+        demoMode: @(Model.DemoMode.ToString().ToLower())
+    };
+
+    // Truck-on-scale threshold, matching the kiosk.
+    var ON_SCALE_LB = 1000;
+    var MOTION_TIMEOUT_MS = 10000;
+    var POLL_MS = 500;
+
+    // Cookies the phone owns. The open-ticket cookie is server-set and
+    // HttpOnly — these two are just this handset's preferences.
+    var CK_SCALE = 'bw_mobile_scale';
+    var CK_RECALL = 'bw_mobile_recall';
+
+    // ===== STATE =====
+    var scaleData = { weight: 0, motion: false, error: false, ok: true };
+    var sites = [];
+    var siteId = null, scaleId = null, scaleName = '';
+    var openTicket = null;
+    var lists = { commodities: [], customers: [], carriers: [], locations: [], destinations: [], bins: [], binCommodities: {}, customFields: [] };
+    var listsScaleId = null;   // scale the cached lists were loaded for
+
+    var flow = null;           // 'weighin' | 'weighout'
+    var answers = {};          // this run's prompt answers
+    var queue = [], qIdx = 0;
+    var editingKey = null;     // set while changing one row from the confirm screen
+    var currentItems = [];
+    var numValue = '';
+    var motionTimer = null;
+    var lastDone = null;       // completed ticket shown on the done screen
+
+    // Retained tare offered for the truck in the current flow, and the driver's
+    // answer to it. The phone never sends a tare value — only whether to use
+    // the one the server holds.
+    var tareOffer = null;      // { tare, updated } or null
+    var tarePromise = null;    // in-flight lookup, so the ask can wait on it
+    var useTareChoice = null;  // true / false once the driver has answered
+    var openTicketTare = null; // stored tare for the open ticket's truck, if any
+
+    var STD_LABELS = {
+        carrier: 'Carrier', truck: 'Truck ID', commodity: 'Commodity',
+        customer: 'Customer', location: 'Location', destination: 'Destination',
+        bin: 'Bin'
+    };
+
+    // ===== COOKIES =====
+    function setCookie(name, value, days) {
+        var d = new Date();
+        d.setTime(d.getTime() + days * 86400000);
+        document.cookie = name + '=' + encodeURIComponent(value) +
+            ';expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+    }
+    function getCookie(name) {
+        var m = document.cookie.match('(^|;)\\s*' + name + '\\s*=\\s*([^;]+)');
+        return m ? decodeURIComponent(m[2]) : null;
+    }
+
+    /// Answers from the last completed weigh-in on this handset. Recalled so a
+    /// driver hauling the same load again confirms instead of re-answering.
+    function loadRecall() {
+        try { return JSON.parse(getCookie(CK_RECALL) || '{}') || {}; }
+        catch (e) { return {}; }
+    }
+    function saveRecall(data) {
+        var keep = {};
+        Object.keys(data).forEach(function (k) {
+            if (data[k] !== undefined && data[k] !== null && data[k] !== '') keep[k] = data[k];
+        });
+        setCookie(CK_RECALL, JSON.stringify(keep), 30);
+    }
+
+    // ===== SCREENS =====
+    function show(id) {
+        $('.screen').removeClass('active');
+        $('#scr-' + id).addClass('active');
+        // Leaving mid-flow would throw away the answers collected so far, so
+        // the way out is only offered while the driver is between steps.
+        $('#btn-dashboard').toggleClass('hidden',
+            id === 'prompt' || id === 'number' || id === 'confirm' || id === 'busy');
+        // The weight only matters where the driver is about to act on it.
+        var showWeight = (id === 'home' || id === 'open' || id === 'busy' || id === 'confirm');
+        $('#weight-bar').toggle(showWeight)
+            .toggleClass('compact', id === 'confirm' || id === 'busy');
+    }
+
+    function banner(text, kind) {
+        $('#banner').removeClass('warn err').addClass(kind || '').text(text).addClass('show');
+        clearTimeout(banner._t);
+        banner._t = setTimeout(function () { $('#banner').removeClass('show'); }, 5000);
+    }
+
+    /// Two-way question. Both answers are real choices — the second is not
+    /// always "cancel", so it gets its own handler.
+    function showModal(o) {
+        $('#modal-title').text(o.title);
+        $('#modal-text').text(o.text);
+        $('#modal-ok').text(o.okLabel).attr('class', 'btn ' + (o.okClass || 'btn-red'));
+        $('#modal-cancel').text(o.cancelLabel || 'Cancel');
+        $('#modal').addClass('show');
+        $('#modal-ok').off('click').on('click', function () {
+            $('#modal').removeClass('show');
+            if (o.onOk) o.onOk();
+        });
+        $('#modal-cancel').off('click').on('click', function () {
+            $('#modal').removeClass('show');
+            if (o.onCancel) o.onCancel();
+        });
+    }
+
+    function confirmModal(title, text, okLabel, onOk) {
+        showModal({ title: title, text: text, okLabel: okLabel, cancelLabel: 'No', onOk: onOk });
+    }
+
+    // ===== WEIGHT =====
+    function renderWeight() {
+        var $bar = $('#weight-bar').removeClass('w-ok w-motion w-error');
+        if (scaleData.error) {
+            $('#weight-value').text('——');
+            $('#weight-unit').text('');
+            $('#weight-status').text('SCALE ERROR');
+            $bar.addClass('w-error');
+        } else if (scaleData.motion) {
+            $('#weight-value').text(scaleData.weight.toLocaleString());
+            $('#weight-unit').text(' lb');
+            $('#weight-status').text('IN MOTION');
+            $bar.addClass('w-motion');
+        } else {
+            $('#weight-value').text(scaleData.weight.toLocaleString());
+            $('#weight-unit').text(' lb');
+            $('#weight-status').html('&nbsp;');
+            $bar.addClass('w-ok');
+        }
+        refreshActionButtons();
+        if ($('#scr-confirm').hasClass('active')) updateConfirmWeights();
+    }
+
+    /// A weighment needs a truck actually on the scale and a healthy reading.
+    function canWeigh() {
+        return !scaleData.error && scaleData.weight >= ON_SCALE_LB;
+    }
+
+    function refreshActionButtons() {
+        var ready = canWeigh();
+        // A load that can be closed on a stored tare does not need the truck
+        // back on the scale, so Weigh Out stays available for it.
+        var canCloseOnTare = !!(openTicket && openTicketTare);
+        $('#btn-weighin').prop('disabled', !ready);
+        $('#btn-weighout').prop('disabled', !ready && !canCloseOnTare);
+        $('#home-hint').text(scaleData.error
+            ? 'Scale is not reporting — see the office.'
+            : (ready ? 'Ready. Tap Weigh In to start your load.'
+                     : 'Pull onto the scale, then tap Weigh In.'));
+        if (openTicket) {
+            $('#open-hint').text(scaleData.error && !canCloseOnTare
+                ? 'Scale is not reporting — see the office.'
+                : (ready ? 'Ready. Tap Weigh Out to close this load.'
+                         : (canCloseOnTare
+                            ? 'Pull back onto the scale, or close on this truck’s stored tare.'
+                            : 'Pull back onto the scale when your load is done.')));
+        }
+    }
+
+    function pollWeight() {
+        if (scaleId == null) return;
+        $.getJSON('/api/scale/weight?scale=' + scaleId)
+            .done(function (d) { scaleData = d; renderWeight(); })
+            .fail(function () {
+                scaleData = { weight: 0, motion: false, error: true, ok: false };
+                renderWeight();
+            });
+    }
+    setInterval(pollWeight, POLL_MS);
+
+    // ===== BOOT =====
+    function boot() {
+        $.when($.getJSON('/api/mobile/scales'), $.getJSON('/api/mobile/session'))
+            .done(function (scalesRes, sessionRes) {
+                sites = scalesRes[0].sites || [];
+                var needsPicker = scalesRes[0].needsPicker;
+                openTicket = sessionRes[0].openTicket || null;
+
+                var saved = (getCookie(CK_SCALE) || '').split(':');
+                var savedSite = saved.length === 2 ? parseInt(saved[0]) : NaN;
+                var savedScale = saved.length === 2 ? parseInt(saved[1]) : NaN;
+
+                if (!needsPicker) {
+                    // Single location, single scale — nothing to ask.
+                    var only = sites[0];
+                    if (!only || !only.scales.length) {
+                        banner('No scale is configured — see the office.', 'err');
+                        show('home');
+                        return;
+                    }
+                    applyScale(only.id, only.scales[0].id, only.scales[0].name);
+                    afterScaleChosen();
+                } else if (!isNaN(savedScale) && scaleExists(savedSite, savedScale)) {
+                    applyScale(savedSite, savedScale, scaleNameOf(savedSite, savedScale));
+                    afterScaleChosen();
+                } else {
+                    showSitePicker();
+                }
+            })
+            .fail(function () {
+                banner('Cannot reach the scale system.', 'err');
+                show('home');
+            });
+    }
+
+    function scaleExists(sid, scid) {
+        var site = sites.find(function (s) { return s.id === sid; });
+        return !!(site && site.scales.some(function (x) { return x.id === scid; }));
+    }
+    function scaleNameOf(sid, scid) {
+        var site = sites.find(function (s) { return s.id === sid; });
+        var sc = site && site.scales.find(function (x) { return x.id === scid; });
+        return sc ? sc.name : '';
+    }
+
+    function applyScale(sid, scid, name) {
+        siteId = sid; scaleId = scid; scaleName = name;
+        setCookie(CK_SCALE, sid + ':' + scid, 30);
+        var site = sites.find(function (s) { return s.id === sid; });
+        var label = (site && site.name) ? site.name + ' · ' + name : name;
+        $('#scale-chip').text(label).show();
+        listsScaleId = null; // location-limited lists must be reloaded
+        pollWeight();
+    }
+
+    function afterScaleChosen() {
+        if (openTicket) showOpenTicket();
+        else show('home');
+    }
+
+    // ===== LOCATION / SCALE PICKER =====
+    function showSitePicker() {
+        // A single location with several scales skips straight to the scales.
+        if (sites.length === 1) { showScalePicker(sites[0]); return; }
+        $('#picker-title').text('Choose Location');
+        $('#picker-back').hide();
+        var $l = $('#picker-list').empty();
+        sites.forEach(function (site) {
+            $('<div class="list-item" role="button" tabindex="0"></div>').text(site.name || 'Scales')
+                .on('click', function () { showScalePicker(site); })
+                .appendTo($l);
+        });
+        show('picker');
+    }
+
+    function showScalePicker(site) {
+        if (site.scales.length === 1) {
+            applyScale(site.id, site.scales[0].id, site.scales[0].name);
+            afterScaleChosen();
+            return;
+        }
+        $('#picker-title').text(site.name ? 'Scale at ' + site.name : 'Choose Scale');
+        $('#picker-back').toggle(sites.length > 1).off('click').on('click', showSitePicker);
+        var $l = $('#picker-list').empty();
+        site.scales.forEach(function (sc) {
+            $('<div class="list-item" role="button" tabindex="0"></div>').text(sc.name)
+                .on('click', function () {
+                    applyScale(site.id, sc.id, sc.name);
+                    afterScaleChosen();
+                })
+                .appendTo($l);
+        });
+        show('picker');
+    }
+
+    // Tapping the chip in the header re-opens the picker between loads.
+    $('#scale-chip').on('click', function () {
+        if (flow) return;             // never mid-weighment
+        if (sites.length === 0) return;
+        showSitePicker();
+    });
+
+    // ===== MASTER DATA =====
+    function loadLists() {
+        if (listsScaleId === scaleId) return $.Deferred().resolve().promise();
+        return $.getJSON('/api/mobile/lists?scaleId=' + scaleId).done(function (d) {
+            lists = d;
+            listsScaleId = scaleId;
+        });
+    }
+
+    // ===== RETAINED TARE =====
+    /// Ask the server whether this truck has a stored empty weight worth
+    /// offering. Staleness and the feature toggle are decided server-side so
+    /// the phone can't offer a tare the weighment would then reject.
+    function loadTareOffer(carrier, truckId) {
+        tareOffer = null;
+        if (!cfg.useRetainedTare || !carrier || !truckId) {
+            tarePromise = $.Deferred().resolve().promise();
+            return tarePromise;
+        }
+        tarePromise = $.getJSON('/api/mobile/retained-tare', { carrier: carrier, truckId: truckId })
+            .done(function (d) { if (d && d.available) tareOffer = d; })
+            .fail(function () { tareOffer = null; });
+        return tarePromise;
+    }
+
+    function tareLine() {
+        if (!tareOffer) return '';
+        var when = tareOffer.updated ? new Date(tareOffer.updated).toLocaleDateString() : '';
+        return tareOffer.tare.toLocaleString() + ' lb' + (when ? ' (from ' + when + ')' : '');
+    }
+
+    // ===== PROMPT QUEUE =====
+    function cascadeParentKey(parentField) {
+        if (!parentField) return null;
+        if (parentField.indexOf('cf_') === 0) return 'cf' + parentField.substring(3);
+        return parentField.toLowerCase();
+    }
+
+    /// Same rules as the kiosk: which questions get asked on the way in vs out,
+    /// and which of them the driver is allowed to skip.
+    function buildPrompts(direction) {
+        var inbound = direction === 'inbound';
+        var p = [];
+        if (cfg.promptCarrier) {
+            p.push({ key: 'carrier', title: 'Select Carrier', items: lists.carriers, allowSkip: cfg.allowSkipCarrier });
+        }
+        if (cfg.promptCarrier && cfg.promptTruckId) {
+            p.push({ key: 'truck', title: 'Select Truck', items: [], loadFrom: 'carrier', allowSkip: cfg.allowSkipTruckId });
+        }
+        if (inbound ? cfg.promptCommodityOnInbound : cfg.promptCommodityOnOutbound) {
+            p.push({ key: 'commodity', title: 'Select Commodity', items: lists.commodities, allowSkip: cfg.allowSkipCommodity });
+        }
+        if (inbound ? cfg.promptCustomerOnInbound : cfg.promptCustomerOnOutbound) {
+            p.push({ key: 'customer', title: 'Select Customer', items: lists.customers, allowSkip: cfg.allowSkipCustomer });
+        }
+        if (inbound ? cfg.promptLocationOnInbound : cfg.promptLocationOnOutbound) {
+            p.push({ key: 'location', title: 'Select Location', items: lists.locations, allowSkip: cfg.allowSkipLocation });
+        }
+        if (inbound ? cfg.promptDestinationOnInbound : cfg.promptDestinationOnOutbound) {
+            p.push({ key: 'destination', title: 'Select Destination', items: lists.destinations, allowSkip: cfg.allowSkipDestination });
+        }
+        if (cfg.useBinInventory && (inbound ? cfg.promptBinOnInbound : cfg.promptBinOnOutbound)) {
+            p.push({ key: 'bin', title: 'Select Bin', items: lists.bins || [], allowSkip: cfg.allowSkipBin });
+        }
+        // Custom fields are weigh-in only, matching the kiosk.
+        if (inbound && lists.customFields && lists.customFields.length) {
+            lists.customFields.forEach(function (f) {
+                if (f.fieldType === 'Text') {
+                    p.push({ key: 'cf' + f.id, cfId: f.id, title: 'Select ' + f.name,
+                             items: f.listValues || [], allItems: f.listValues || [],
+                             parentKey: cascadeParentKey(f.parentField),
+                             valueMap: f.parentField ? (f.valueMap || {}) : null,
+                             allowSkip: !f.required });
+                } else {
+                    p.push({ key: 'cf' + f.id, cfId: f.id, title: 'Enter ' + f.name,
+                             type: 'number', integer: f.fieldType === 'Integer',
+                             min: f.minValue, max: f.maxValue, precision: f.precision,
+                             allowSkip: !f.required });
+                }
+            });
+        }
+        return p;
+    }
+
+    function labelFor(key) {
+        if (STD_LABELS[key]) return STD_LABELS[key];
+        if (key.indexOf('cf') === 0) {
+            var id = parseInt(key.substring(2));
+            var f = (lists.customFields || []).find(function (x) { return x.id === id; });
+            if (f) return f.name;
+        }
+        return key;
+    }
+
+    /// Choices for a prompt right now, after cascade and bin/commodity filters.
+    function itemsFor(prompt) {
+        var items = prompt.items || [];
+        if (prompt.valueMap) {
+            var parentAnswer = prompt.parentKey ? answers[prompt.parentKey] : null;
+            items = parentAnswer ? (prompt.valueMap[parentAnswer] || []) : (prompt.allItems || []);
+        }
+        // Lock Bin to Commodity: a bin holding something else can't take this
+        // load. Empty bins always show.
+        if (prompt.key === 'bin' && cfg.binCommodityLock) {
+            var eff = answers.commodity || (flow === 'weighout' && openTicket ? openTicket.commodity : null);
+            if (eff) {
+                var held = lists.binCommodities || {};
+                items = items.filter(function (b) { return !held[b] || held[b] === eff; });
+            }
+        }
+        return items;
+    }
+
+    // ===== WEIGH IN =====
+    $('#btn-weighin').on('click', function () {
+        if (!canWeigh()) return;
+        flow = 'weighin';
+        answers = {};
+        tareOffer = null; useTareChoice = null;
+        show('busy');
+        $('#busy-text').text('Loading…');
+        loadLists().always(function () {
+            queue = buildPrompts('inbound');
+            startQueueWithRecall();
+        });
+    });
+
+    /// Prefill from the last load and jump to the confirm screen, asking only
+    /// the questions the recalled set can't answer. With nothing recalled this
+    /// is just the normal walk through every prompt.
+    function startQueueWithRecall() {
+        var recall = flow === 'weighin' ? loadRecall() : {};
+        if (!Object.keys(recall).length) { runPrompts(queue); return; }
+
+        // The truck list is fetched per carrier, so a recalled truck has nothing
+        // to validate against until that fetch happens. Do it up front,
+        // otherwise the driver is re-asked for the truck on every single trip —
+        // the one answer they least want to repeat.
+        var truckPrompt = queue.find(function (p) { return p.key === 'truck'; });
+        var pre;
+        if (truckPrompt && recall.carrier && recall.truck
+            && (lists.carriers || []).indexOf(recall.carrier) >= 0) {
+            pre = $.getJSON('/api/mobile/trucks/' + encodeURIComponent(recall.carrier))
+                .done(function (trucks) { truckPrompt.items = trucks || []; });
+        } else {
+            pre = $.Deferred().resolve().promise();
+        }
+
+        pre.always(function () {
+            queue.forEach(function (p) {
+                if (!Object.prototype.hasOwnProperty.call(recall, p.key)) return;
+                var v = recall[p.key];
+                // Only reuse a value that is still a legal choice — master data
+                // may have changed since the last trip.
+                if (p.type === 'number' || itemsFor(p).indexOf(v) >= 0) answers[p.key] = v;
+            });
+            askMissingThenConfirm();
+        });
+    }
+
+    /// Ask whatever still has no answer, then show the confirm screen. Used
+    /// both after a recall prefill and after an edit invalidates a child answer.
+    function askMissingThenConfirm() {
+        var missing = queue.filter(function (p) {
+            return !Object.prototype.hasOwnProperty.call(answers, p.key);
+        });
+        if (missing.length) runPrompts(missing);
+        else showConfirm();
+    }
+
+    // ===== WEIGH OUT =====
+    $('#btn-weighout').on('click', function () {
+        if (!openTicket) return;
+        // Either the truck is on the scale, or the load can be closed on the
+        // stored tare without one. Matches what refreshActionButtons enables.
+        if (!canWeigh() && !openTicketTare) return;
+        flow = 'weighout';
+        answers = {};
+        tareOffer = null; useTareChoice = null;
+        show('busy');
+        $('#busy-text').text('Loading…');
+        // The truck is already known from the ticket, so the stored tare can be
+        // looked up before the driver reaches the confirmation.
+        loadTareOffer(openTicket.carrier, openTicket.truckId);
+        loadLists().always(function () {
+            // Carrier and truck came in on the ticket — never re-asked.
+            queue = buildPrompts('outbound').filter(function (p) {
+                return p.key !== 'carrier' && p.key !== 'truck';
+            });
+            askMissingThenConfirm();
+        });
+    });
+
+    // ===== PROMPT RUNNER =====
+    var runList = [], runIdx = 0;
+
+    function runPrompts(list) {
+        runList = list; runIdx = 0;
+        editingKey = null;
+        nextPrompt();
+    }
+
+    function nextPrompt() {
+        // Finishing a pass re-checks for gaps rather than going straight to the
+        // confirm screen: answering one prompt can invalidate a child answered
+        // earlier, and that child has to be asked, not silently left blank.
+        if (runIdx >= runList.length) { askMissingThenConfirm(); return; }
+        var p = runList[runIdx];
+
+        // Trucks depend on the carrier answered a moment ago.
+        if (p.loadFrom === 'carrier') {
+            if (!answers.carrier) { runIdx++; nextPrompt(); return; }
+            $.getJSON('/api/mobile/trucks/' + encodeURIComponent(answers.carrier))
+                .done(function (trucks) {
+                    if (!trucks.length) {
+                        cancelFlow();
+                        banner('No trucks are assigned to "' + answers.carrier + '" — see the office.', 'err');
+                        return;
+                    }
+                    p.items = trucks;
+                    renderPrompt(p);
+                })
+                .fail(function () {
+                    cancelFlow();
+                    banner('Could not load trucks. Try again.', 'err');
+                });
+            return;
+        }
+        renderPrompt(p);
+    }
+
+    function advance() {
+        if (editingKey) { editingKey = null; askMissingThenConfirm(); return; }
+        runIdx++;
+        nextPrompt();
+    }
+
+    function renderPrompt(prompt) {
+        if (prompt.type === 'number') { renderNumber(prompt); return; }
+
+        var items = itemsFor(prompt);
+        // An empty list has nothing to ask — don't show a screen with only
+        // "None" on it. Record the skip so re-entry doesn't ask again.
+        if (items.length === 0) {
+            if (!Object.prototype.hasOwnProperty.call(answers, prompt.key)) answers[prompt.key] = '';
+            advance();
+            return;
+        }
+
+        var allowSkip = prompt.allowSkip !== false;
+        currentItems = allowSkip ? [''].concat(items) : items.slice();
+
+        // The value already held for this prompt: what the recall filled in, or
+        // what the driver picked before tapping the row to change it.
+        var current = answers[prompt.key];
+
+        $('#prompt-title').text(prompt.title);
+        var $l = $('#prompt-list').empty().scrollTop(0);
+        var $recalled = null;
+
+        currentItems.forEach(function (item) {
+            var isNone = (item === '' || item == null);
+            var $i = $('<div class="list-item" role="button" tabindex="0"></div>')
+                .text(isNone ? '— None —' : item)
+                .toggleClass('none', isNone);
+            if (!isNone && item === current) { $i.addClass('recalled'); $recalled = $i; }
+            $i.on('click', function () { pick(prompt, item); });
+            $l.append($i);
+        });
+
+        $('#prompt-skip').toggle(allowSkip).off('click').on('click', function () {
+            pick(prompt, '');
+        });
+        show('prompt');
+        // Put the carried-over choice where the thumb already is.
+        if ($recalled) {
+            var top = $recalled.position().top;
+            if (top > $l.height() - 60) $l.scrollTop($l.scrollTop() + top - 60);
+        }
+    }
+
+    function pick(prompt, value) {
+        answers[prompt.key] = value;
+
+        // Picking a holding bin answers the commodity too, when the commodity
+        // prompt was skipped or turned off.
+        if (prompt.key === 'bin' && cfg.binCommodityLock && value) {
+            var held = (lists.binCommodities || {})[value];
+            if (held && !answers.commodity) answers.commodity = held;
+        }
+        // Changing the carrier invalidates the truck picked under the old one,
+        // and the truck list cached for it.
+        if (prompt.key === 'carrier') {
+            var tp = queue.find(function (p) { return p.key === 'truck'; });
+            if (tp) { tp.items = []; delete answers.truck; }
+        }
+        // Changing a parent can invalidate the answer stored for a child.
+        clearStaleChildren(prompt.key);
+        advance();
+    }
+
+    /// Drop child answers that are no longer a legal choice for the parent that
+    /// just changed, so the confirm screen can re-ask them.
+    function clearStaleChildren(changedKey) {
+        queue.forEach(function (p) {
+            if (!p.valueMap || p.parentKey !== changedKey) return;
+            var v = answers[p.key];
+            if (v === undefined) return;
+            if (v !== '' && itemsFor(p).indexOf(v) < 0) delete answers[p.key];
+        });
+    }
+
+    $('#prompt-cancel').on('click', cancelFlow);
+
+    // ===== NUMBER KEYPAD =====
+    var NUM_KEYS = ['1','2','3','4','5','6','7','8','9','.','0','⌫'];
+    function buildPad() {
+        var $p = $('#num-pad').empty();
+        NUM_KEYS.forEach(function (k) {
+            $('<button class="num-key" type="button"></button>').text(k)
+                .on('click', function () { numKey(k); }).appendTo($p);
+        });
+    }
+    buildPad();
+
+    var numPrompt = null;
+    function renderNumber(prompt) {
+        numPrompt = prompt;
+        numValue = (answers[prompt.key] !== undefined && answers[prompt.key] !== '')
+            ? String(answers[prompt.key]) : '';
+        $('#num-title').text(prompt.title);
+        $('#num-error').html('&nbsp;');
+        // An integer field has no use for the decimal key.
+        $('#num-pad .num-key').each(function () {
+            if ($(this).text() === '.') $(this).prop('disabled', !!prompt.integer).css('opacity', prompt.integer ? 0.3 : 1);
+        });
+        paintNumber();
+        show('number');
+    }
+    function paintNumber() { $('#num-readout').text(numValue === '' ? '0' : numValue); }
+
+    function numKey(k) {
+        if (k === '⌫') { numValue = numValue.slice(0, -1); }
+        else if (k === '.') {
+            if (numPrompt.integer || numValue.indexOf('.') >= 0) return;
+            numValue = (numValue === '' ? '0' : numValue) + '.';
+        }
+        else {
+            if (numValue.replace('.', '').length >= 12) return;
+            numValue = (numValue === '0' ? '' : numValue) + k;
+        }
+        $('#num-error').html('&nbsp;');
+        paintNumber();
+    }
+
+    $('#num-done').on('click', function () {
+        var p = numPrompt;
+        if (numValue === '' || numValue === '0.') {
+            if (p.allowSkip !== false) { answers[p.key] = ''; advance(); }
+            else $('#num-error').text('A value is required');
+            return;
+        }
+        var v = parseFloat(numValue);
+        if (isNaN(v)) { $('#num-error').text('Not a valid number'); return; }
+        if (p.min != null && v < p.min) { $('#num-error').text('Minimum is ' + p.min); return; }
+        if (p.max != null && v > p.max) { $('#num-error').text('Maximum is ' + p.max); return; }
+        if (!p.integer && p.precision != null) {
+            var dot = numValue.indexOf('.');
+            var dec = dot < 0 ? 0 : numValue.length - dot - 1;
+            if (dec > p.precision) {
+                $('#num-error').text('Up to ' + p.precision + ' decimal place' + (p.precision === 1 ? '' : 's'));
+                return;
+            }
+        }
+        answers[p.key] = numValue.replace(/\.$/, '');
+        advance();
+    });
+    $('#num-cancel').on('click', cancelFlow);
+
+    // ===== CONFIRM =====
+    function showConfirm() {
+        var keys = [];
+        queue.forEach(function (p) { if (keys.indexOf(p.key) < 0) keys.push(p.key); });
+        // A commodity set indirectly by the bin still has to be shown.
+        Object.keys(STD_LABELS).forEach(function (k) {
+            if (k in answers && keys.indexOf(k) < 0) keys.push(k);
+        });
+
+        // A weigh-out always stops here for a confirmation, even when the site
+        // configures no outbound prompts — closing a load is the irreversible
+        // step, and the driver gets to see the net before committing to it.
+        var outbound = flow === 'weighout';
+        if (keys.length === 0 && !outbound) { startWeighment(); return; }
+
+        $('#confirm-title').text(outbound
+            ? 'Confirm Weigh Out' + (openTicket ? ' · #' + openTicket.ticket : '')
+            : 'Confirm Weigh In');
+        $('#confirm-go').text(outbound ? 'Confirm & Weigh Out' : 'Confirm & Weigh In');
+        $('#confirm-weights').toggle(outbound);
+        // Carrier and truck are settled by now, so the offer can be fetched
+        // while the driver reads the summary.
+        if (!outbound) loadTareOffer(answers.carrier, answers.truck);
+        // Nothing was asked, so there is nothing to re-ask.
+        $('#confirm-editall').toggle(keys.length > 0);
+        if (outbound && openTicket) {
+            $('#confirm-in').text((openTicket.inWeight || 0).toLocaleString());
+            updateConfirmWeights();
+        }
+
+        var $l = $('#confirm-list').empty().scrollTop(0);
+        keys.forEach(function (key) {
+            var prompt = queue.find(function (p) { return p.key === key; });
+            var v = answers[key];
+            var blank = (v === undefined || v === null || v === '');
+            var $row = $('<div class="cf-row"></div>');
+            $('<span class="cf-label"></span>').text(labelFor(key)).appendTo($row);
+            $('<span class="cf-value"></span>')
+                .text(blank ? '— none —' : v)
+                .toggleClass('skipped', blank)
+                .appendTo($row);
+            if (prompt) {
+                $('<span class="cf-edit">CHANGE</span>').appendTo($row);
+                $row.attr({ role: 'button', tabindex: '0' });
+                $row.on('click', function () {
+                    editingKey = key;
+                    renderPrompt(prompt);
+                });
+            }
+            $l.append($row);
+        });
+
+        // Everything the ticket already carries from the way in. Read-only:
+        // these were captured at weigh-in and are not outbound prompts.
+        if (outbound && openTicket) {
+            TICKET_CONTEXT.forEach(function (c) {
+                if (keys.indexOf(c.answerKey) >= 0) return;   // already shown, editable
+                var v = openTicket[c.field];
+                if (v === undefined || v === null || v === '') return;
+                var $row = $('<div class="cf-row"></div>');
+                $('<span class="cf-label"></span>').text(c.label).appendTo($row);
+                $('<span class="cf-value"></span>').text(v).appendTo($row);
+                $l.append($row);
+            });
+            if (openTicket.dateIn) {
+                var $t = $('<div class="cf-row"></div>');
+                $('<span class="cf-label"></span>').text('Time In').appendTo($t);
+                $('<span class="cf-value"></span>').text(new Date(openTicket.dateIn).toLocaleString()).appendTo($t);
+                $l.append($t);
+            }
+        }
+        show('confirm');
+        // The row lands when the lookup returns; the ask at commit time waits
+        // on the same request, so a slow network can't skip the question.
+        if (tarePromise) tarePromise.always(function () {
+            if (!$('#scr-confirm').hasClass('active')) return;
+            $('#confirm-list .tare-row').remove();
+            if (!tareOffer) return;
+            var $r = $('<div class="cf-row tare-row"></div>');
+            $('<span class="cf-label"></span>').text('Stored Tare').appendTo($r);
+            $('<span class="cf-value"></span>').text(tareLine()).appendTo($r);
+            $('#confirm-list').append($r);
+        });
+    }
+
+    /// Ticket fields shown read-only on the weigh-out confirmation, paired with
+    /// the prompt key that would supersede them if the site asks on the way out.
+    var TICKET_CONTEXT = [
+        { field: 'carrier',     answerKey: 'carrier',     label: 'Carrier' },
+        { field: 'truckId',     answerKey: 'truck',       label: 'Truck ID' },
+        { field: 'commodity',   answerKey: 'commodity',   label: 'Commodity' },
+        { field: 'customer',    answerKey: 'customer',    label: 'Customer' },
+        { field: 'location',    answerKey: 'location',    label: 'Location' },
+        { field: 'destination', answerKey: 'destination', label: 'Destination' },
+        { field: 'bin',         answerKey: 'bin',         label: 'Bin' }
+    ];
+
+    /// Keep the net on the weigh-out confirmation tracking the live scale, so
+    /// the number the driver approves is the number that gets saved.
+    function updateConfirmWeights() {
+        if (flow !== 'weighout' || !openTicket) return;
+        var live = scaleData.error ? 0 : scaleData.weight;
+        $('#confirm-net').text(Math.abs((openTicket.inWeight || 0) - live).toLocaleString());
+    }
+
+    $('#confirm-go').on('click', startWeighment);
+    $('#confirm-cancel').on('click', cancelFlow);
+    $('#confirm-editall').on('click', function () {
+        answers = {};
+        runPrompts(queue);
+    });
+
+    // ===== WEIGHMENT =====
+    /// Commit point. When the truck has a stored empty weight, the driver is
+    /// told what it is and chooses how to use it, instead of the tare being
+    /// applied silently the way the kiosk applies it.
+    function startWeighment() {
+        if (!flow) return;
+        if (useTareChoice !== null) { proceedWithWeighment(); return; }
+
+        if (!cfg.useRetainedTare) { useTareChoice = false; proceedWithWeighment(); return; }
+
+        show('busy');
+        $('#busy-text').text('Checking stored tare…');
+        (tarePromise || $.Deferred().resolve().promise()).always(function () {
+            if (!tareOffer) { useTareChoice = false; proceedWithWeighment(); return; }
+            askReuseTare();
+        });
+    }
+
+    function askReuseTare() {
+        if (flow === 'weighout') {
+            var live = scaleData.error ? null : scaleData.weight;
+            showModal({
+                title: 'Reuse stored tare?',
+                text: 'This truck has a stored empty weight of ' + tareLine() + '. '
+                    + 'Use it to close the load, or weigh the truck on the scale now'
+                    + (live !== null ? ' (' + live.toLocaleString() + ' lb)' : '') + '?',
+                okLabel: 'Use stored ' + tareOffer.tare.toLocaleString() + ' lb',
+                okClass: 'btn-green',
+                cancelLabel: 'Weigh on scale',
+                onOk: function () { useTareChoice = true; proceedWithWeighment(); },
+                onCancel: function () { useTareChoice = false; proceedWithWeighment(); }
+            });
+            return;
+        }
+        showModal({
+            title: 'Reuse stored tare?',
+            text: 'This truck has a stored empty weight of ' + tareLine() + '. '
+                + 'Finish the load now using it, and you will not need to weigh out. '
+                + 'Otherwise the ticket stays open until you weigh out on the scale.',
+            okLabel: 'Finish now',
+            okClass: 'btn-green',
+            cancelLabel: 'Weigh out later',
+            onOk: function () { useTareChoice = true; proceedWithWeighment(); },
+            onCancel: function () { useTareChoice = false; proceedWithWeighment(); }
+        });
+    }
+
+    function proceedWithWeighment() {
+        // Closing on a stored tare needs no live reading at all — the truck may
+        // already be off the scale, or never have driven back onto it.
+        if (flow === 'weighout' && useTareChoice) {
+            show('busy');
+            capture();
+            return;
+        }
+        if (scaleData.error) { banner('Scale is not reporting — see the office.', 'err'); backToConfirm(); return; }
+        if (scaleData.weight < ON_SCALE_LB) {
+            banner('Pull onto the scale before confirming.', 'warn');
+            backToConfirm();
+            return;
+        }
+        show('busy');
+        if (!scaleData.motion) { capture(); return; }
+
+        $('#busy-text').text('Waiting for the scale to settle…');
+        clearTimeout(motionTimer);
+        var started = Date.now();
+        (function waitMotion() {
+            if (!scaleData.motion && !scaleData.error) { capture(); return; }
+            if (Date.now() - started > MOTION_TIMEOUT_MS) {
+                cancelFlow();
+                banner('Scale never settled. Hold still and try again.', 'warn');
+                return;
+            }
+            motionTimer = setTimeout(waitMotion, 250);
+        })();
+    }
+
+    /// A refused weighment goes back to the summary rather than dumping the
+    /// driver out of the flow — nothing they answered is lost.
+    function backToConfirm() {
+        useTareChoice = null;
+        show('confirm');
+    }
+
+    function capture() {
+        $('#busy-text').text('Saving…');
+        if (flow === 'weighin') saveWeighIn();
+        else saveWeighOut();
+    }
+
+    function customFieldPayload() {
+        var out = {};
+        (lists.customFields || []).forEach(function (f) {
+            var v = answers['cf' + f.id];
+            if (v !== undefined && v !== null && v !== '') out[f.id] = String(v);
+        });
+        return out;
+    }
+
+    function saveWeighIn() {
+        var weight = scaleData.weight;
+        $.ajax({
+            url: '/api/mobile/weighin',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                weight: weight,
+                scaleId: scaleId,
+                commodity: answers.commodity || null,
+                customer: answers.customer || null,
+                carrier: answers.carrier || null,
+                truckId: answers.truck || null,
+                location: answers.location || null,
+                destination: answers.destination || null,
+                bin: answers.bin || null,
+                customFields: customFieldPayload(),
+                useRetainedTare: useTareChoice
+            })
+        }).done(function (r) {
+            saveRecall(answers);
+            flow = null;
+            clearTareState();
+
+            if (r.tareApplied) {
+                // A retained tare closed the load in one weighment — there is
+                // no open ticket to come back to.
+                openTicket = null;
+                showDone(r, 'Weighed in and out on a retained tare.');
+                return;
+            }
+            openTicket = {
+                ticket: r.ticket, inWeight: r.inWeight, dateIn: new Date().toISOString(),
+                commodity: answers.commodity, customer: answers.customer,
+                carrier: answers.carrier, truckId: answers.truck,
+                location: answers.location, destination: answers.destination, bin: answers.bin
+            };
+            showOpenTicket();
+            banner('Weighed in — ticket #' + r.ticket);
+        }).fail(function (xhr) {
+            if (xhr.status === 409 && xhr.responseJSON && xhr.responseJSON.openTicket) {
+                // Another tab or a stale view already opened a load.
+                openTicket = xhr.responseJSON.openTicket;
+                flow = null;
+                showOpenTicket();
+                banner('This phone already has an open ticket.', 'warn');
+                return;
+            }
+            failFlow(xhr);
+        });
+    }
+
+    function saveWeighOut() {
+        $.ajax({
+            url: '/api/mobile/weighout',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                weight: scaleData.weight,
+                scaleId: scaleId,
+                useRetainedTare: useTareChoice === true,
+                destination: answers.destination || null,
+                commodity: answers.commodity || null,
+                customer: answers.customer || null,
+                location: answers.location || null,
+                bin: answers.bin || null
+            })
+        }).done(function (r) {
+            flow = null;
+            openTicket = null;
+            openTicketTare = null;
+            showDone(r, r.tareReused ? 'Closed on this truck’s stored empty weight.' : null);
+        }).fail(function (xhr) {
+            if (xhr.status === 404) {
+                // The office closed or voided it while the driver was prompting.
+                openTicket = null;
+                flow = null;
+                show('home');
+                banner('That ticket is no longer open — see the office.', 'warn');
+                return;
+            }
+            failFlow(xhr);
+        });
+    }
+
+    function failFlow(xhr) {
+        var msg = 'Could not save (' + xhr.status + '). Try again.';
+        if (xhr.responseJSON && xhr.responseJSON.message) msg = xhr.responseJSON.message;
+        cancelFlow();
+        banner(msg, 'err');
+    }
+
+    /// The tare offer is per-weighment; a fresh one is fetched next time.
+    function clearTareState() {
+        tareOffer = null;
+        useTareChoice = null;
+    }
+
+    function cancelFlow() {
+        clearTimeout(motionTimer);
+        flow = null;
+        answers = {};
+        queue = [];
+        editingKey = null;
+        tareOffer = null;
+        useTareChoice = null;
+        if (openTicket) showOpenTicket();
+        else show('home');
+    }
+
+    // ===== OPEN TICKET SCREEN =====
+    function showOpenTicket() {
+        $('#open-ticket').text('#' + openTicket.ticket);
+        // Decides whether Weigh Out can be offered without a live reading.
+        openTicketTare = null;
+        if (cfg.useRetainedTare && openTicket.carrier && openTicket.truckId) {
+            $.getJSON('/api/mobile/retained-tare',
+                      { carrier: openTicket.carrier, truckId: openTicket.truckId })
+                .done(function (d) {
+                    if (d && d.available) openTicketTare = d;
+                    refreshActionButtons();
+                });
+        }
+        var $d = $('#open-details').empty();
+        function row(label, value) {
+            if (value === undefined || value === null || value === '') return;
+            var $r = $('<div class="cf-row"></div>');
+            $('<span class="cf-label"></span>').text(label).appendTo($r);
+            $('<span class="cf-value"></span>').text(value).appendTo($r);
+            $d.append($r);
+        }
+        row('Weighed In', openTicket.inWeight != null ? openTicket.inWeight.toLocaleString() + ' lb' : '');
+        row('Time In', openTicket.dateIn ? new Date(openTicket.dateIn).toLocaleString() : '');
+        row('Carrier', openTicket.carrier);
+        row('Truck ID', openTicket.truckId);
+        row('Commodity', openTicket.commodity);
+        row('Customer', openTicket.customer);
+        row('Location', openTicket.location);
+        row('Destination', openTicket.destination);
+        row('Bin', openTicket.bin);
+        show('open');
+        refreshActionButtons();
+    }
+
+    $('#btn-reset').on('click', function () {
+        confirmModal(
+            'Cancel this weigh-in?',
+            'Ticket #' + (openTicket ? openTicket.ticket : '') + ' will be voided and this phone will start over. ' +
+            'You cannot undo this — if the load is real, weigh out instead.',
+            'Yes, void it',
+            function () {
+                $.ajax({ url: '/api/mobile/reset', method: 'POST' })
+                    .done(function (r) {
+                        openTicket = null;
+                        show('home');
+                        banner(r.voided ? 'Ticket #' + r.ticket + ' voided.' : 'Session cleared.', 'warn');
+                    })
+                    .fail(function () { banner('Could not reset. Try again.', 'err'); });
+            });
+    });
+
+    // ===== DONE SCREEN =====
+    function showDone(r, note) {
+        lastDone = r;
+        $('#done-ticket').text('#' + r.ticket);
+        $('#done-gross').text((r.grossWeight || 0).toLocaleString());
+        $('#done-tare').text((r.tareWeight || 0).toLocaleString());
+        $('#done-net').text((r.netWeight || 0).toLocaleString());
+
+        var $d = $('#done-details').empty();
+        function row(label, value) {
+            if (value === undefined || value === null || value === '') return;
+            var $r = $('<div class="cf-row"></div>');
+            $('<span class="cf-label"></span>').text(label).appendTo($r);
+            $('<span class="cf-value"></span>').text(value).appendTo($r);
+            $d.append($r);
+        }
+        if (note) row('Note', note);
+        row('In', (r.inWeight != null ? r.inWeight.toLocaleString() + ' lb' : ''));
+        row('Out', (r.outWeight != null ? r.outWeight.toLocaleString() + ' lb' : ''));
+        if (r.dateIn) row('Time In', new Date(r.dateIn).toLocaleString());
+        if (r.dateOut) row('Time Out', new Date(r.dateOut).toLocaleString());
+        show('done');
+    }
+
+    $('#btn-pdf').on('click', function () {
+        if (!lastDone) return;
+        // Opened rather than fetched so the handset's own PDF viewer / share
+        // sheet handles saving it.
+        window.open('/api/mobile/ticket/' + encodeURIComponent(lastDone.ticket) + '/pdf', '_blank');
+    });
+
+    $('#btn-done').on('click', function () {
+        lastDone = null;
+        show('home');
+        refreshActionButtons();
+    });
+
+    // ===== DEMO SIMULATOR =====
+    if (cfg.demoMode) {
+        var simT = null;
+        function sendSim() {
+            clearTimeout(simT);
+            simT = setTimeout(function () {
+                $.ajax({
+                    url: '/api/scale/simulate',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({
+                        weight: parseInt($('#simSlider').val()),
+                        motion: $('#simMotion').is(':checked'),
+                        error: false,
+                        scaleDbId: scaleId
+                    })
+                });
+            }, 40);
+        }
+        $('#simSlider').on('input', function () {
+            $('#simVal').text(parseInt(this.value).toLocaleString());
+            sendSim();
+        });
+        $('#simMotion').on('change', sendSim);
+    }
+
+    boot();
+})();
+</script>
+</body>
+</html>

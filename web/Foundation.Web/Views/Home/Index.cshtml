@@ -159,7 +159,142 @@
     .dashboard-btn:hover svg {
         opacity: 1;
     }
+
+    /* Driver self-service tile. Hidden everywhere except an actual handset.
+       Feature-detected rather than user-agent sniffed: a coarse pointer with
+       no hover rules out a mouse, so narrowing a desktop window never surfaces
+       it. The 500px cap is on whichever side is short — width in portrait,
+       height in landscape — because a phone is small in one direction whatever
+       way it is held (a Pro Max is 932px wide on its side). The smallest
+       tablet is ~744px on its short side, so tablets stay out either way. */
+    .mobile-only { display: none; }
+    @@media (hover: none) and (pointer: coarse) and (max-width: 500px),
+           (hover: none) and (pointer: coarse) and (max-height: 500px) {
+        .mobile-only { display: block; }
+    }
+    /* First-visit view chooser. Only ever shown to a handset that has not
+       chosen before, so it needs no media query of its own. */
+    #viewChoice {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 3000;
+        background: rgba(0, 0, 0, 0.82);
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    }
+    #viewChoice.show { display: flex; }
+    #viewChoice .vc-box {
+        background: var(--bw-surface, #fff);
+        color: var(--bw-text, #111);
+        border-radius: 18px;
+        padding: 26px 22px;
+        width: 100%;
+        max-width: 420px;
+        text-align: center;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    #viewChoice .vc-box h2 { font-size: 1.3rem; font-weight: 700; margin-bottom: 10px; }
+    #viewChoice .vc-box p {
+        font-size: 0.92rem;
+        line-height: 1.45;
+        color: var(--bw-text-muted, #667);
+        margin-bottom: 20px;
+    }
+    #viewChoice .vc-btn {
+        display: block;
+        width: 100%;
+        min-height: 58px;
+        border-radius: 12px;
+        font-size: 1.05rem;
+        font-weight: 700;
+        border: 2px solid var(--bw-primary);
+        margin-bottom: 10px;
+        cursor: pointer;
+        font-family: inherit;
+    }
+    #viewChoice .vc-primary { background: var(--bw-primary); color: var(--bw-text-on-primary, #fff); }
+    #viewChoice .vc-secondary { background: transparent; color: var(--bw-text, #111); }
+    #viewChoice .vc-note {
+        font-size: 0.78rem;
+        color: var(--bw-text-muted, #778);
+        margin: 12px 0 0;
+    }
+    #viewChoice svg { width: 38px; height: 38px; color: var(--bw-primary); margin-bottom: 10px; }
+
+    .dashboard-btn.mobile-btn {
+        border-color: var(--bw-success, #1a9e4b);
+        background: rgba(26, 158, 75, 0.12);
+    }
+    .dashboard-btn.mobile-btn:hover,
+    .dashboard-btn.mobile-btn:active {
+        background: var(--bw-success, #1a9e4b);
+        color: #fff;
+    }
 </style>
+
+<!-- First visit from a handset: offer the phone-shaped view before the
+     operator has to work out that /Mobile exists. Markup and script sit here,
+     ahead of the dashboard content, so the choice paints without a flash of
+     the desktop layout behind it. -->
+<div id="viewChoice">
+    <div class="vc-box" role="dialog" aria-modal="true" aria-labelledby="vcTitle">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />
+        </svg>
+        <h2 id="vcTitle">You're on a phone</h2>
+        <p>The mobile view is built for weighing from the truck &mdash; one screen, big buttons, nothing to scroll. The desktop view is the full office dashboard.</p>
+        <button type="button" class="vc-btn vc-primary" id="vcMobile">Use Mobile View</button>
+        <button type="button" class="vc-btn vc-secondary" id="vcDesktop">Use Desktop View</button>
+        <p class="vc-note">Either way you can switch later &mdash; the dashboard keeps a Mobile Weighing button, and the mobile view has one back to the dashboard.</p>
+    </div>
+</div>
+<script>
+(function () {
+    'use strict';
+    var PREF = 'bw_view_pref';
+
+    // Split rather than a regex: the escaping needed for a regex literal in a
+    // Razor view is a trap, and this cannot be got subtly wrong.
+    function getCookie(name) {
+        var parts = document.cookie.split(';');
+        for (var i = 0; i < parts.length; i++) {
+            var p = parts[i].trim();
+            if (p.indexOf(name + '=') === 0) return decodeURIComponent(p.substring(name.length + 1));
+        }
+        return null;
+    }
+    function setCookie(name, value) {
+        var d = new Date();
+        d.setTime(d.getTime() + 365 * 86400000);
+        document.cookie = name + '=' + encodeURIComponent(value) +
+            ';expires=' + d.toUTCString() + ';path=/;SameSite=Lax';
+    }
+
+    // Same test the .mobile-only tile uses: a touch device that is small on
+    // whichever side is short. Kept identical so the two never disagree.
+    var isPhone = window.matchMedia(
+        '(hover: none) and (pointer: coarse) and (max-width: 500px),' +
+        '(hover: none) and (pointer: coarse) and (max-height: 500px)').matches;
+
+    // Asked once. A returning visitor is never redirected — they may well have
+    // arrived here on purpose from the mobile view's dashboard button, and
+    // bouncing them back would trap them between the two.
+    if (!isPhone || getCookie(PREF)) return;
+
+    var box = document.getElementById('viewChoice');
+    box.classList.add('show');
+    document.getElementById('vcMobile').addEventListener('click', function () {
+        setCookie(PREF, 'mobile');
+        window.location.href = '/Mobile';
+    });
+    document.getElementById('vcDesktop').addEventListener('click', function () {
+        setCookie(PREF, 'desktop');
+        box.classList.remove('show');
+    });
+})();
+</script>
 
 <div class="row justify-content-center mb-4">
     <div class="col-md-10">
@@ -175,6 +310,14 @@
 </div>
 
 <div class="row g-4 justify-content-center">
+    <div class="col-md-4 col-lg-3 mobile-only">
+        <a asp-controller="Mobile" asp-action="Index" class="dashboard-btn mobile-btn">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 1.5H8.25A2.25 2.25 0 006 3.75v16.5a2.25 2.25 0 002.25 2.25h7.5A2.25 2.25 0 0018 20.25V3.75a2.25 2.25 0 00-2.25-2.25H13.5m-3 0V3h3V1.5m-3 0h3m-3 18.75h3" />
+            </svg>
+            Mobile Weighing
+        </a>
+    </div>
     <div class="col-md-4 col-lg-3">
         <a asp-controller="Transaction" asp-action="WeighIn" class="dashboard-btn">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">

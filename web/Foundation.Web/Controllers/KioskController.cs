@@ -53,104 +53,7 @@ public class KioskController : Controller
 
     [HttpGet("api/kiosk/lists")]
     public IActionResult GetLists(int? scaleId = null)
-    {
-        // A kiosk is mapped to one scale; commodities and bins limited to a
-        // location (Edit Tables) only show on kiosks whose scale is there.
-        var siteId = scaleId.HasValue ? _db.Scales.Find(scaleId.Value)?.SiteId : null;
-
-        var commodities = _db.Commodities
-            .Where(c => c.Active && c.UseAtKiosk).ForSite(siteId)
-            .OrderBy(c => c.CommodityName)
-            .Select(c => c.CommodityName)
-            .ToList();
-
-        var customers = _db.Customers
-            .Where(c => c.Active && c.UseAtKiosk)
-            .OrderBy(c => c.CustomerName)
-            .Select(c => c.CustomerName)
-            .ToList();
-
-        // Kiosk Carrier prompt: only show entries that are explicitly marked
-        // as Carriers in master data. Customers who also haul can be added to
-        // Carriers via the "Add to Carriers" button on the MasterData
-        // Customers grid; from then on they appear in this list.
-        var carriers = _db.Carriers
-            .Where(c => c.Active && c.UseAtKiosk)
-            .OrderBy(c => c.CarrierName)
-            .Select(c => c.CarrierName)
-            .ToList();
-
-        var locations = _db.Locations
-            .Where(l => l.Active && l.UseAtKiosk)
-            .OrderBy(l => l.LocationName)
-            .Select(l => l.LocationName)
-            .ToList();
-
-        var destinations = _db.Destinations
-            .Where(d => d.Active && d.UseAtKiosk)
-            .OrderBy(d => d.DestinationName)
-            .Select(d => d.DestinationName)
-            .ToList();
-
-        // Bin prompt only exists while Bin Inventory is enabled — return an
-        // empty list when off so a stale kiosk page auto-skips the prompt.
-        var setup = _setupCache.Get();
-        var bins = setup.UseBinInventory
-            ? _db.Bins
-                .Where(b => b.Active && b.UseAtKiosk).ForSite(siteId)
-                .OrderBy(b => b.BinName)
-                .Select(b => b.BinName)
-                .ToList()
-            : new List<string>();
-
-        // Lock Bin to Commodity: bin → its current contents, so the bin
-        // prompt can filter to bins that match the chosen commodity and
-        // auto-set a skipped commodity from the chosen bin.
-        var binCommodities = setup.UseBinInventory && setup.BinCommodityLock
-            ? BinInventory.HeldCommodities(_db)
-            : new Dictionary<string, string>();
-
-        // Kiosk-enabled custom fields. Only constrained inputs prompt at the
-        // kiosk: numeric fields and list-backed text fields (free text is
-        // filtered out even if the flag was somehow set). Cascading sub-fields
-        // also carry their parent name + per-parent choice map so the prompt
-        // can filter by the answer already collected in this flow.
-        var eligibleFields = _db.CustomFields
-            .Where(f => f.Active && f.PromptAtKiosk)
-            .OrderBy(f => f.SortOrder).ThenBy(f => f.Name)
-            .ToList()
-            .Where(f => f.IsKioskEligible())
-            .ToList();
-
-        var dependentIds = eligibleFields.Where(f => f.ParentField != null).Select(f => f.Id).ToList();
-        var valueMaps = _db.CustomFieldListValues
-            .Where(v => dependentIds.Contains(v.CustomFieldId))
-            .OrderBy(v => v.SortOrder).ThenBy(v => v.Value)
-            .AsEnumerable()
-            .GroupBy(v => v.CustomFieldId)
-            .ToDictionary(
-                g => g.Key,
-                g => g.GroupBy(v => v.ParentValue)
-                      .ToDictionary(pg => pg.Key, pg => pg.Select(v => v.Value).ToList()));
-
-        var customFields = eligibleFields
-            .Select(f => new
-            {
-                id = f.Id,
-                name = f.Name,
-                fieldType = f.FieldType,
-                required = f.Required,
-                listValues = f.GetListValues(),
-                minValue = f.MinValue,
-                maxValue = f.MaxValue,
-                precision = f.Precision,
-                parentField = f.ParentField,
-                valueMap = f.ParentField != null ? valueMaps.GetValueOrDefault(f.Id) ?? new Dictionary<string, List<string>>() : null
-            })
-            .ToList();
-
-        return Json(new { commodities, customers, carriers, locations, destinations, bins, binCommodities, customFields });
-    }
+        => Json(KioskLists.Build(_db, _setupCache.Get(), scaleId));
 
     [HttpGet("api/kiosk/trucks/{carrier}")]
     public IActionResult GetTrucks(string carrier)
@@ -769,65 +672,11 @@ public class KioskController : Controller
     }
 
     /// <summary>
-    /// Server-side backstop for kiosk-collected custom field values. The kiosk
-    /// UI already constrains input (dropdown choices, numeric keypad with
-    /// min/max/precision), so an invalid value here means a stale kiosk page
-    /// or a hand-crafted request — it is silently dropped rather than failing
-    /// the weigh-in, since a truck is standing on the scale. Caller SaveChanges().
+    /// Kiosk-collected custom field values. Shared with the mobile page — see
+    /// <see cref="KioskLists.SaveCustomFields"/>. Caller SaveChanges().
     /// </summary>
-    /// <returns>The custom-field ids actually written, so a card can fill in
-    /// the rest without duplicating what the driver just answered.</returns>
     private HashSet<int> SaveKioskCustomFields(string ticket, Dictionary<string, string>? values)
-    {
-        var written = new HashSet<int>();
-        if (values == null || values.Count == 0) return written;
-
-        var fields = _db.CustomFields
-            .Where(f => f.Active && f.PromptAtKiosk)
-            .ToList()
-            .Where(f => f.IsKioskEligible())
-            .ToList();
-
-        foreach (var f in fields)
-        {
-            if (!values.TryGetValue(f.Id.ToString(), out var raw)) continue;
-            raw = raw?.Trim() ?? "";
-            if (raw.Length == 0) continue;
-            if (raw.Length > 200) raw = raw[..200];
-
-            if (f.FieldType == "Integer")
-            {
-                if (!long.TryParse(raw, out var i)) continue;
-                if (f.MinValue.HasValue && i < f.MinValue.Value) continue;
-                if (f.MaxValue.HasValue && i > f.MaxValue.Value) continue;
-            }
-            else if (f.FieldType == "Real")
-            {
-                if (!double.TryParse(raw, out var d)) continue;
-                if (f.MinValue.HasValue && d < f.MinValue.Value) continue;
-                if (f.MaxValue.HasValue && d > f.MaxValue.Value) continue;
-                if (f.Precision.HasValue)
-                {
-                    var dot = raw.IndexOf('.');
-                    if (dot >= 0 && raw.Length - dot - 1 > f.Precision.Value) continue;
-                }
-            }
-            else if (!f.GetListValues().Contains(raw))
-            {
-                continue;
-            }
-
-            _db.TransactionCustomValues.Add(new TransactionCustomValue
-            {
-                Ticket = ticket,
-                CustomFieldId = f.Id,
-                Value = raw
-            });
-            written.Add(f.Id);
-        }
-
-        return written;
-    }
+        => KioskLists.SaveCustomFields(_db, ticket, values);
 
     /// <summary>
     /// Copy the card's custom-field values onto the new ticket, skipping any

@@ -235,6 +235,16 @@ app.Use(async (context, next) =>
         return;
     }
 
+    // Mobile weighing: the driver's own phone, which has no way to be handed a
+    // PIN. Its session is a cookie holding one open ticket, and the page can
+    // only ever touch the load it opened — so it stays outside the PIN gate.
+    // /api/mobile/ticket/{id}/pdf is the ticket download (TicketController).
+    if (path.StartsWith("/Mobile") || path.StartsWith("/api/mobile/"))
+    {
+        await next();
+        return;
+    }
+
     // Kiosk / signature pad access: check PIN if UseLogin is on. The signature
     // pad is an unattended tablet like the kiosk, so it shares the kiosk PIN
     // (and cookie). /api/signature/ is included so the pad can upload.

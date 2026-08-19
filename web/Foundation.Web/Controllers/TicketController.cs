@@ -185,6 +185,9 @@ public class TicketController : Controller
     }
 
     [HttpGet("api/ticket/{id}/pdf")]
+    // Alias for the mobile page, which sits outside the kiosk PIN gate and
+    // hands the driver their finished ticket as a download instead of printing.
+    [HttpGet("api/mobile/ticket/{id}/pdf")]
     public IActionResult GetTicketPdf(string id)
     {
         var transaction = _db.Transactions.Find(id);

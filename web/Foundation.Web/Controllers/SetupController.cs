@@ -241,6 +241,29 @@ public class SetupController : Controller
         return RedirectToAction("Index");
     }
 
+    /// <summary>
+    /// Wipe the weighing history: tickets and everything keyed to a ticket
+    /// number. Master data (customers, carriers, commodities, trucks, bins) is
+    /// untouched, so the site keeps weighing straight afterwards.
+    /// </summary>
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public IActionResult ClearTransactions()
+    {
+        if (!_config.GetValue<bool>("ShowResetDatabase", false))
+            return Forbid();
+
+        var removed = _db.Transactions.Count();
+        ClearTransactionData();
+        _db.SaveChanges();
+        _setupCache.Invalidate();
+
+        TempData["Message"] = removed == 0
+            ? "No transactions to clear. Master data is unchanged."
+            : $"{removed:N0} transaction{(removed == 1 ? "" : "s")} cleared. Master data is unchanged and the ticket number is back to 1.";
+        return RedirectToAction("Index");
+    }
+
     [HttpPost]
     [ValidateAntiForgeryToken]
     public IActionResult ClearDatabase()
@@ -248,7 +271,7 @@ public class SetupController : Controller
         if (!_config.GetValue<bool>("ShowResetDatabase", false))
             return Forbid();
 
-        _db.Transactions.RemoveRange(_db.Transactions);
+        ClearTransactionData();
         _db.Customers.RemoveRange(_db.Customers);
         _db.Carriers.RemoveRange(_db.Carriers);
         _db.Commodities.RemoveRange(_db.Commodities);
@@ -258,14 +281,53 @@ public class SetupController : Controller
         _db.Bins.RemoveRange(_db.Bins);
         _db.BinAdjustments.RemoveRange(_db.BinAdjustments);
 
-        // Reset ticket number
-        var setup = _db.AppSetup.First();
-        setup.TicketNumber = 1;
         _db.SaveChanges();
         _setupCache.Invalidate();
 
         TempData["Message"] = "Database cleared. All transactions and master data removed.";
         return RedirectToAction("Index");
+    }
+
+    /// <summary>
+    /// Remove every ticket and the rows and files that hang off a ticket
+    /// number, then send the ticket counter back to 1. Shared by "Clear
+    /// Transactions" and the full "Clear Database" so neither can leave custom
+    /// values, email logs, card links or ticket images pointing at tickets that
+    /// no longer exist. Caller SaveChanges().
+    /// </summary>
+    private void ClearTransactionData()
+    {
+        _db.TransactionCustomValues.RemoveRange(_db.TransactionCustomValues);
+        _db.LoadEmailLogs.RemoveRange(_db.LoadEmailLogs);
+        _db.Transactions.RemoveRange(_db.Transactions);
+
+        // A card left bound to a deleted ticket would send its driver into the
+        // weigh-out flow for a load that no longer exists.
+        var setup = _db.AppSetup.First();
+        foreach (var card in _db.Cards.Where(c => c.OpenTicket != null).ToList())
+            CardFields.Release(card, setup, card.OpenTicket!);
+
+        DeleteTicketImages();
+
+        setup.TicketNumber = 1;
+    }
+
+    /// <summary>
+    /// Drop the per-ticket signature and camera captures under
+    /// wwwroot/images/tickets. Best effort: a locked or missing file must not
+    /// fail the clear, since the database rows are the record that matters.
+    /// </summary>
+    private static void DeleteTicketImages()
+    {
+        var dir = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "images", "tickets");
+        if (!Directory.Exists(dir)) return;
+
+        foreach (var file in Directory.EnumerateFiles(dir))
+        {
+            try { System.IO.File.Delete(file); }
+            catch (IOException) { /* in use — leave it */ }
+            catch (UnauthorizedAccessException) { /* read-only — leave it */ }
+        }
     }
 
     [HttpPost]
