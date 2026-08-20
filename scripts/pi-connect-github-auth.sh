@@ -75,7 +75,10 @@ umask 077
 : > "$PEM_TMP"
 started=0
 while IFS= read -r line; do
-  line="${line%$'\r'}"    # a key copied on Windows arrives CRLF-terminated
+  line="${line%$'\r'}"        # a key copied on Windows arrives CRLF-terminated
+  line="${line//$'\e'/}"        # ESC byte from a bracketed paste
+  line="${line//[[]200~/}"      # ...and the markers Pi Connect leaves behind
+  line="${line//[[]201~/}"
   if [[ $started -eq 0 ]]; then
     case "$line" in *"-----BEGIN"*) started=1 ;; *) continue ;; esac
   fi
