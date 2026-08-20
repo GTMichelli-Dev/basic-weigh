@@ -14,8 +14,9 @@
 #        sudo bash setup-pi-github-app.sh \
 #            --install-id <INSTALL_ID> \
 #            --pem /tmp/michelli-app.pem
-#   3. Verify: `git ls-remote https://github.com/GTMichelli-Dev/foundation.git`
-#      succeeds with no prompt.
+#   3. Verify: `git ls-remote https://github.com/GTMichelli-Dev/pi-network-setup.git`
+#      succeeds with no prompt. Test against a PRIVATE repo — foundation and
+#      the service repos are public and succeed without any auth at all.
 #   4. Shred the source PEM: `shred -u /tmp/michelli-app.pem`
 #
 # Idempotent. Re-running re-installs the helpers (picks up newer versions
@@ -74,7 +75,7 @@ On re-runs (e.g. after \`git pull\` updates the helper scripts), pass no flags
 to refresh helpers in place — existing conf + PEM are reused.
 
 After this:
-  git ls-remote https://github.com/GTMichelli-Dev/foundation.git
+  git ls-remote https://github.com/GTMichelli-Dev/pi-network-setup.git
 should succeed silently. Then any service install script can \`git clone\` /
 \`git pull\` over plain HTTPS — no PAT, no SSH config.
 EOF
@@ -160,7 +161,11 @@ git config --system --replace-all "credential.https://github.com/GTMichelli-Dev.
 chmod 0644 /etc/gitconfig 2>/dev/null || true
 echo "Registered credential helper in /etc/gitconfig for github.com/GTMichelli-Dev"
 
-# 7. Smoke-test by minting a token and hitting ls-remote against the main repo.
+# 7. Smoke-test by minting a token and hitting ls-remote against a PRIVATE repo.
+# It must be private: foundation and the service repos went public, and
+# ls-remote against a public repo succeeds even with no credential helper at
+# all, so it would pass on a Pi where the App auth is entirely broken.
+SMOKE_REPO="pi-network-setup"
 echo
 echo "Smoke-testing..."
 TOKEN=$("$TOKEN_BIN")
@@ -171,8 +176,8 @@ else
   exit 1
 fi
 
-if git ls-remote "https://github.com/GTMichelli-Dev/foundation.git" HEAD >/dev/null 2>&1; then
-  echo "git ls-remote succeeded against the foundation repo. Setup done."
+if git ls-remote "https://github.com/GTMichelli-Dev/$SMOKE_REPO.git" HEAD >/dev/null 2>&1; then
+  echo "git ls-remote succeeded against the private $SMOKE_REPO repo. Setup done."
 else
   echo "git ls-remote failed — check App permissions (Contents: Read) and Installation repo selection." >&2
   exit 1
