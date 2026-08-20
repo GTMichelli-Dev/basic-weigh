@@ -4,10 +4,10 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>1.16.1</Version>
-    <AssemblyVersion>1.16.1.0</AssemblyVersion>
-    <FileVersion>1.16.1.0</FileVersion>
-    <InformationalVersion>1.16.1</InformationalVersion>
+    <Version>1.16.2</Version>
+    <AssemblyVersion>1.16.2.0</AssemblyVersion>
+    <FileVersion>1.16.2.0</FileVersion>
+    <InformationalVersion>1.16.2</InformationalVersion>
     <Product>Foundation</Product>
   </PropertyGroup>
 

@@ -1,0 +1,21 @@
+# Foundation site list for deploy-all.
+#
+# Copy this to sites.txt (which is gitignored — it names live customer hosts)
+# and edit. One site per line:
+#
+#   <user@host> [domain] [port]
+#
+# domain defaults to the host part of user@host, which is what you want when
+# the box is reached at the same name it serves. port defaults to 5110, or to
+# whatever --port you pass deploy-all.
+#
+# Blank lines and #-comments are ignored.
+
+admin@valleyag.scaledata.net
+admin@buzzardroost.scaledata.net
+
+# Domain differs from the SSH host — deploying to an IP, serving a name:
+# admin@149.28.10.42        northwest.scaledata.net
+
+# Non-default app port:
+# admin@southside.scaledata.net   southside.scaledata.net   8080

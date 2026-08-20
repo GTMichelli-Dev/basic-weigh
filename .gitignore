@@ -435,3 +435,6 @@ web/Foundation.Web/wwwroot/images/tickets/
 # Data Protection key ring (encrypts the stored SMTP password) — machine-local,
 # never commit
 web/Foundation.Web/App_Data/
+
+# Site manifest for deploy-all — names live customer hosts. Ship the example.
+deploy/sites.txt
