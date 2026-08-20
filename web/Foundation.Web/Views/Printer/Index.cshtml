@@ -72,6 +72,10 @@
 <script src="~/js/signalr/signalr.min.js"></script>
 <script>
     var connectedServices = {};
+    // The hub pushes nothing on connect, so "no services" and "hub is down"
+    // look identical from the client. Track the connection state separately
+    // instead of leaving the status bar spinning forever.
+    var hubConnected = false;
     var savedInboundPrinterId = '@(ViewBag.InboundPrinterId ?? "")';
     var savedOutboundPrinterId = '@(ViewBag.OutboundPrinterId ?? "")';
 
@@ -85,15 +89,19 @@
         .build();
 
     connection.onreconnecting(function () {
+        hubConnected = false;
         updateStatusBar();
     });
 
     connection.onreconnected(function () {
+        hubConnected = true;
         connectedServices = {};
+        updateStatusBar();
         connection.invoke('RequestPrinterList').catch(function () {});
     });
 
     connection.onclose(function () {
+        hubConnected = false;
         connectedServices = {};
         updateStatusBar();
         renderServices();
@@ -103,8 +111,12 @@
 
     function startConnection() {
         connection.start().then(function () {
+            hubConnected = true;
+            updateStatusBar();
             connection.invoke('RequestPrinterList').catch(function () {});
         }).catch(function () {
+            hubConnected = false;
+            updateStatusBar();
             setTimeout(startConnection, 5000);
         });
     }
@@ -147,6 +159,12 @@
         var bar = document.getElementById('serviceStatusBar');
         var noMsg = document.getElementById('noServicesMessage');
         var count = Object.keys(connectedServices).length;
+        if (!hubConnected) {
+            bar.className = 'alert alert-danger py-2 mb-3 d-flex align-items-center';
+            bar.innerHTML = '<strong>Not connected to this server</strong> &mdash; retrying...';
+            noMsg.style.display = 'none';
+            return;
+        }
         if (count > 0) {
             bar.className = 'alert alert-success py-2 mb-3 d-flex align-items-center';
             bar.innerHTML = '<strong>' + count + ' Print Service(s) Connected</strong>';
