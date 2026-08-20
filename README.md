@@ -75,16 +75,41 @@ After the app is running, see [Server Management](#server-management) for update
 
 ### Pi access to private repos (GitHub App token)
 
-Deploy Pis clone private GTMichelli-Dev repos over plain HTTPS using a
-**GitHub App installation token** instead of PATs or SSH keys. A one-time
-bootstrap per Pi installs a git credential helper that mints short-lived
-tokens from the App's private key — after that, `git clone` / `git pull` of
-any org repo just works on the box:
+Deploy Pis clone private GTMichelli-Dev repos (pi-network-setup,
+camera-capture-service, qb-sync-service) over plain HTTPS using a **GitHub App
+installation token** instead of PATs or SSH keys. A one-time bootstrap per Pi
+installs a git credential helper that mints short-lived tokens from the App's
+private key — after that, `git clone` / `git pull` of any org repo just works
+on the box.
+
+**From Raspberry Pi Connect** (no SSH, no file copy — the usual field case).
+Open the Pi at [connect.raspberrypi.com/devices](https://connect.raspberrypi.com/devices)
+→ **Shell**, and paste these two lines:
+
+```bash
+curl -fsSL -o /tmp/gh-auth.sh https://raw.githubusercontent.com/GTMichelli-Dev/foundation/main/scripts/pi-connect-github-auth.sh
+bash /tmp/gh-auth.sh </dev/tty
+```
+
+It asks for the Installation ID, then for the App's `.pem` — paste the key
+and it stops at the END line on its own. Nothing else to type, and the key is
+shredded from `/tmp` when it finishes. Have the `.pem` open in a text editor
+before you start.
+
+**From a workstation with SSH access**, copy the files across instead:
 
 ```bash
 scp scripts/setup-pi-github-app.sh scripts/michelli-github-app-token.sh \
     scripts/git-credential-michelli.sh /path/to/michelli-app.pem admin@<pi>:/tmp/
 ssh admin@<pi> "sudo bash /tmp/setup-pi-github-app.sh --install-id <ID> --pem /tmp/michelli-app.pem"
+ssh admin@<pi> "shred -u /tmp/michelli-app.pem"
+```
+
+Either way, verify against a **private** repo — the public ones answer without
+auth and so prove nothing:
+
+```bash
+git ls-remote https://github.com/GTMichelli-Dev/pi-network-setup.git HEAD
 ```
 
 Full walkthrough — including creating the GitHub App the first time (org

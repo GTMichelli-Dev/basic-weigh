@@ -1,10 +1,14 @@
 # Pi git auth — Michelli GitHub App installation tokens
 
 Every Raspberry Pi that needs to `git clone` or `git pull` a private
-GTMichelli-Dev repo (foundation, web-print-service, pi-network-setup,
-camera-capture-service, scale-reader-service, qb-sync-service, ...)
-authenticates through **one GitHub App** installed on the org. No personal
-access tokens, no SSH keys, no per-Pi GitHub accounts.
+GTMichelli-Dev repo authenticates through **one GitHub App** installed on the
+org. No personal access tokens, no SSH keys, no per-Pi GitHub accounts.
+
+Which repos actually need it: **pi-network-setup**, **camera-capture-service**,
+and **qb-sync-service** are private. **foundation**, **web-print-service**, and
+**scale-reader-service** are public and clone with no credentials at all —
+worth knowing, because it makes them useless for testing whether this setup
+works.
 
 ## How it works
 
@@ -57,6 +61,52 @@ the App page and re-run the bootstrap on each Pi with the new `--pem`.
 
 ## Per-Pi bootstrap
 
+Two ways in, depending on how you can reach the Pi. Both end at the same
+place; pick by what you have, not by which looks more official.
+
+| How you reach the Pi | Use |
+|---|---|
+| Raspberry Pi Connect web shell (terminal only, no file transfer) | [Pasted bootstrap](#pasted-bootstrap-pi-connect) |
+| SSH from a workstation that has this repo and the PEM on disk | [scp bootstrap](#scp-bootstrap) |
+
+Either way you need two things in front of you: the **Installation ID** (the
+number at the end of the App's install URL) and the App's **`.pem`** private
+key.
+
+### Pasted bootstrap (Pi Connect)
+
+Pi Connect gives you a terminal and nothing else — no scp, no drag-and-drop.
+So the key arrives the only way a browser terminal allows: pasted.
+
+Open the Pi at [connect.raspberrypi.com/devices](https://connect.raspberrypi.com/devices)
+→ **Shell**, then paste:
+
+```bash
+curl -fsSL -o /tmp/gh-auth.sh https://raw.githubusercontent.com/GTMichelli-Dev/foundation/main/scripts/pi-connect-github-auth.sh
+bash /tmp/gh-auth.sh </dev/tty
+```
+
+It installs git if the Pi lacks it, sparse-clones this repo's `scripts/`
+folder (foundation is public — that is how the Pi gets the tooling *before*
+it can authenticate to anything), then prompts for the Installation ID and
+the key. Paste the whole `.pem` including the BEGIN and END lines; capture
+stops at END by itself, so there is no terminator to remember. Anything you
+paste before the BEGIN line is ignored, and a key copied on Windows with CRLF
+endings is handled.
+
+The pasted key is written mode 0600, checked with `openssl` before use, and
+shredded from `/tmp` when the script exits — including if it fails partway.
+
+The `</dev/tty` is not decoration: without it the prompts would consume
+whatever else is still sitting in the terminal's paste buffer instead of
+waiting for you.
+
+> The key does travel through your browser and the Connect relay. That is the
+> same exposure as pasting it into any remote shell. If a site's threat model
+> rules that out, use the scp path over SSH on the local network instead.
+
+### scp bootstrap
+
 From a workstation that has this repo and the PEM on disk:
 
 ```bash
@@ -78,16 +128,33 @@ ssh "$PI" "sudo bash /tmp/setup-pi-github-app.sh \
 (If the defaults were not baked into the script yet, add
 `--client-id <ClientID>`.)
 
-The script apt-installs `curl`/`jq` if missing, installs the two helpers,
-writes `/etc/michelli/github-app.conf` and the PEM, registers the credential
-helper in `/etc/gitconfig`, then smoke-tests with a real token mint and a
-`git ls-remote` against the foundation repo.
+### What the installer does
 
-**Verify** (should print a SHA with no prompt):
+Either path ends in `setup-pi-github-app.sh`, which apt-installs `curl`/`jq`
+if missing, installs the two helpers, writes `/etc/michelli/github-app.conf`
+and the PEM, registers the credential helper in `/etc/gitconfig`, then
+smoke-tests with a real token mint and a `git ls-remote` against the private
+pi-network-setup repo.
+
+It is idempotent. Re-run it to pick up newer helper scripts; the existing
+conf and PEM are reused unless you pass `--pem` again.
+
+### Verify
+
+Should print a SHA with no prompt:
 
 ```bash
-git ls-remote https://github.com/GTMichelli-Dev/foundation.git HEAD
+git ls-remote https://github.com/GTMichelli-Dev/pi-network-setup.git HEAD
 ```
+
+Use a **private** repo here. This check used to point at `foundation`, which
+has since gone public — and a public repo answers `ls-remote` without any
+credential helper involved, so it passed on Pis where the App auth was
+completely broken. A private repo is the only thing that proves the helper,
+the PEM, and the App's repo selection all work.
+
+If it fails, the usual causes are the App missing **Contents: Read**, or the
+installation not covering that repo.
 
 After that, every service installer that clones a GTMichelli-Dev repo — e.g.
 the print service's
