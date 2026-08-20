@@ -1,0 +1,180 @@
+name: Release
+
+# Publishes prebuilt, self-contained builds so a site can be brought up without
+# git, without the .NET SDK, and without waiting for a build on the target.
+#
+#   git tag v1.16.0 && git push origin v1.16.0
+#
+# Every target is cross-published from one Linux runner - self-contained publish
+# needs no native toolchain for the target OS.
+#
+# The tarball layouts deliberately match what deploy/publish.sh and
+# deploy/publish-pi-web.sh already produce, so the existing install.sh scripts
+# work against a downloaded release unchanged.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, without the leading v (e.g. 1.16.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building $VERSION"
+
+      # ---- Foundation web app -------------------------------------------------
+      # linux-x64 for the Debian server, linux-arm64 for a LAN Pi. Layout mirrors
+      # deploy/publish.sh: the app under ./foundation, with the unit file and
+      # installer beside it.
+      - name: Publish Foundation.Web (linux-x64)
+        run: |
+          dotnet publish web/Foundation.Web/Foundation.Web.csproj \
+            -c Release -r linux-x64 --self-contained true \
+            -o out/web-x64/foundation -p:PublishSingleFile=false
+          cp deploy/foundation.service deploy/install.sh out/web-x64/
+
+      - name: Publish Foundation.Web (linux-arm64)
+        run: |
+          dotnet publish web/Foundation.Web/Foundation.Web.csproj \
+            -c Release -r linux-arm64 --self-contained true \
+            -o out/web-arm64/foundation -p:PublishSingleFile=false
+          cp deploy/foundation-pi.service out/web-arm64/
+          cp deploy/install-pi-web.sh out/web-arm64/install.sh
+
+      # ---- Kiosk print agent (Pi only) ---------------------------------------
+      - name: Publish KioskPrintAgent (linux-arm64)
+        run: |
+          dotnet publish KioskPrintAgent/KioskPrintAgent.csproj \
+            -c Release -r linux-arm64 --self-contained true \
+            -o out/kiosk-arm64/app -p:PublishSingleFile=false
+
+      # ---- RFID card reader service ------------------------------------------
+      # arm64 for a Pi, win-x64 because a card reader is often on the weigh PC
+      # itself. install.sh picks up ./app and skips its build, same as the
+      # scale reader's release path.
+      - name: Publish RfidReaderService (linux-arm64)
+        run: |
+          dotnet publish RfidReaderService/RfidReaderService.csproj \
+            -c Release -r linux-arm64 --self-contained true \
+            -o out/rfid-arm64/app -p:PublishSingleFile=false
+          cp RfidReaderService/deploy/install.sh out/rfid-arm64/
+
+      - name: Publish RfidReaderService (win-x64)
+        run: |
+          dotnet publish RfidReaderService/RfidReaderService.csproj \
+            -c Release -r win-x64 --self-contained true \
+            -o out/rfid-win/app -p:PublishSingleFile=false
+
+      - name: Assemble packages
+        run: |
+          set -euo pipefail
+          chmod +x out/web-x64/install.sh out/web-arm64/install.sh out/rfid-arm64/install.sh
+          chmod +x out/web-x64/foundation/Foundation.Web out/web-arm64/foundation/Foundation.Web
+          chmod +x out/kiosk-arm64/app/KioskPrintAgent out/rfid-arm64/app/RfidReaderService
+
+          tar -czf foundation-web-linux-x64.tar.gz     -C out/web-x64 .
+          tar -czf foundation-web-linux-arm64.tar.gz   -C out/web-arm64 .
+          tar -czf kiosk-print-agent-linux-arm64.tar.gz -C out/kiosk-arm64 .
+          tar -czf rfid-reader-linux-arm64.tar.gz      -C out/rfid-arm64 .
+          (cd out/rfid-win && zip -qr ../../rfid-reader-win-x64.zip .)
+
+          ls -lh foundation-web-*.tar.gz kiosk-*.tar.gz rfid-*
+
+      - name: Check the packages
+        run: |
+          set -euo pipefail
+          # Verify what we think we built, rather than finding out on a customer's server.
+          test -f out/web-x64/foundation/Foundation.Web     || { echo "x64 web binary missing";   exit 1; }
+          test -f out/web-arm64/foundation/Foundation.Web   || { echo "arm64 web binary missing"; exit 1; }
+          test -f out/web-x64/install.sh                    || { echo "x64 installer missing";    exit 1; }
+          test -f out/web-arm64/install.sh                  || { echo "arm64 installer missing";  exit 1; }
+          test -f out/kiosk-arm64/app/KioskPrintAgent       || { echo "kiosk binary missing";     exit 1; }
+          test -f out/rfid-arm64/app/RfidReaderService      || { echo "rfid binary missing";      exit 1; }
+          test -f out/rfid-win/app/RfidReaderService.exe    || { echo "rfid exe missing";         exit 1; }
+
+          # A database must never ship - it would overwrite a site's own data.
+          if find out -name "*.db" -o -name "*.db-wal" -o -name "*.db-shm" | grep -q .; then
+            echo "::error::A database file leaked into a package."
+            find out -name "*.db*"
+            exit 1
+          fi
+
+          # Cross-published binaries must actually be for the target architecture.
+          file out/web-arm64/foundation/Foundation.Web | grep -q "ARM aarch64" \
+            || { echo "::error::arm64 web build is not an aarch64 binary"; exit 1; }
+          file out/web-x64/foundation/Foundation.Web | grep -q "x86-64" \
+            || { echo "::error::x64 web build is not an x86-64 binary"; exit 1; }
+          echo "Packages OK"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ steps.ver.outputs.version }}
+        run: |
+          NOTES=$(cat <<EOF
+          Prebuilt, self-contained builds. No .NET, no SDK and no git needed on
+          the target machine.
+
+          ## Foundation web app
+
+          Debian server:
+
+          \`\`\`
+          curl -fsSL -o web.tar.gz https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/foundation-web-linux-x64.tar.gz
+          mkdir -p /tmp/fw && tar -xzf web.tar.gz -C /tmp/fw
+          sudo DOMAIN=your.domain.com EMAIL=you@example.com bash /tmp/fw/install.sh
+          \`\`\`
+
+          Raspberry Pi: same, with \`foundation-web-linux-arm64.tar.gz\`.
+
+          Omit DOMAIN/EMAIL for a LAN install without Let's Encrypt. The database
+          is preserved across reinstalls.
+
+          ## Kiosk print agent (Pi)
+
+          \`kiosk-print-agent-linux-arm64.tar.gz\`
+
+          ## RFID card reader service
+
+          \`rfid-reader-linux-arm64.tar.gz\` (Pi) — extract and run \`install.sh\`.
+          \`rfid-reader-win-x64.zip\` (weigh PC).
+
+          ## Scale reader service
+
+          Released separately, from its own repo:
+          https://github.com/GTMichelli-Dev/scale-reader-service/releases/latest
+          EOF
+          )
+
+          gh release create "v$V" \
+            --title "v$V" \
+            --notes "$NOTES" \
+            foundation-web-linux-x64.tar.gz \
+            foundation-web-linux-arm64.tar.gz \
+            kiosk-print-agent-linux-arm64.tar.gz \
+            rfid-reader-linux-arm64.tar.gz \
+            rfid-reader-win-x64.zip

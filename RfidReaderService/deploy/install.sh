@@ -202,6 +202,27 @@ if [ -f "${INSTALL_DIR}/rfidreaderservice.db" ]; then
 fi
 
 CLEANUP_CLONE=false
+# Prebuilt release package?
+#
+# When this script sits next to an "app" folder - the layout of the release
+# tarball - the binaries are already built for this architecture. Copy them in
+# and skip the SDK download and the build entirely, so the target needs neither
+# git nor the .NET SDK.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PREBUILT_DIR="${SCRIPT_DIR}/app"
+if [ -d "${PREBUILT_DIR}" ] && [ -f "${PREBUILT_DIR}/RfidReaderService" ]; then
+    echo "  Using prebuilt binaries from ${PREBUILT_DIR} (no build needed)."
+    cp -r "${PREBUILT_DIR}/." "${INSTALL_DIR}/"
+    # A database must never come from a package - it would replace the site's
+    # own card mappings. Drop stale write-ahead files too.
+    rm -f "${INSTALL_DIR}/rfidreaderservice.db-wal" "${INSTALL_DIR}/rfidreaderservice.db-shm"
+    PREBUILT=true
+else
+    PREBUILT=false
+fi
+
+if [ "$PREBUILT" = false ]; then
+
 if [ -n "$LOCAL_SRC" ]; then
     SRC_DIR="$LOCAL_SRC"
     echo "  Using local source: ${SRC_DIR}"
@@ -236,6 +257,8 @@ dotnet publish "${SRC_DIR}/RfidReaderService.csproj" \
 if [ "$CLEANUP_CLONE" = true ]; then
     rm -rf "${SRC_DIR}"
 fi
+
+fi   # end of build-from-source branch
 
 if [ -n "$DB_BACKUP" ] && [ -f "$DB_BACKUP" ]; then
     cp "$DB_BACKUP" "${INSTALL_DIR}/rfidreaderservice.db"
