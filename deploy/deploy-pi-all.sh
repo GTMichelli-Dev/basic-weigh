@@ -158,12 +158,14 @@ fi
 #--------------------------------------------------
 # Idempotent: re-running refreshes the app and recreates the AP profile with
 # the SSID derived from this Pi's Wi-Fi MAC (config.env defaults).
+# Pinned to a release tag (unlike the services above, which track main) so a
+# field deploy installs a known AP config rather than whatever just landed.
 if [[ "$SKIP_NET" == "0" ]]; then
   echo ""
   echo "==> [4/4] Installing Pi Network Setup (tech access point)..."
   ssh $SSH_OPTS "$REMOTE" "
     rm -rf /tmp/pns && \
-    git clone -q --depth 1 https://github.com/GTMichelli-Dev/pi-network-setup.git /tmp/pns && \
+    git clone -q --depth 1 --branch v1.0.0 https://github.com/GTMichelli-Dev/pi-network-setup.git /tmp/pns && \
     sudo bash /tmp/pns/install.sh && \
     rm -rf /tmp/pns
   "
