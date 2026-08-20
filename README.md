@@ -82,19 +82,16 @@ installs a git credential helper that mints short-lived tokens from the App's
 private key — after that, `git clone` / `git pull` of any org repo just works
 on the box.
 
-**From Raspberry Pi Connect** (no SSH, no file copy — the usual field case).
-Open the Pi at [connect.raspberrypi.com/devices](https://connect.raspberrypi.com/devices)
-→ **Shell**, and paste these two lines:
+**From Raspberry Pi Connect** (no SSH, no file copy — the usual field case):
+follow [Bootstrap path A](docs/pi-git-auth.md#bootstrap-path-a--pi-connect-web-shell-single-pi).
+It is five single-line commands plus a `nano` step for the PEM, because the
+Connect web shell mangles multi-line bracketed pastes — it appends the
+`^[[201~` end marker to the last line, which corrupts a pasted key.
 
-```bash
-curl -fsSL -o /tmp/gh-auth.sh https://raw.githubusercontent.com/GTMichelli-Dev/foundation/main/scripts/pi-connect-github-auth.sh
-bash /tmp/gh-auth.sh </dev/tty
-```
-
-It asks for the Installation ID, then for the App's `.pem` — paste the key
-and it stops at the END line on its own. Nothing else to type, and the key is
-shredded from `/tmp` when it finishes. Have the `.pem` open in a text editor
-before you start.
+[`scripts/pi-connect-github-auth.sh`](scripts/pi-connect-github-auth.sh) does
+the same thing in one prompt-driven script if you prefer it; it strips those
+markers, but the `nano` path avoids the problem rather than compensating for
+it. Either way, have the `.pem` open in a text editor before you start.
 
 **From a workstation with SSH access**, copy the files across instead:
 
