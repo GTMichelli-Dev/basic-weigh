@@ -588,7 +588,13 @@
 
             html += '<div class="card mb-3"><div class="card-header py-2 d-flex justify-content-between align-items-center">';
             html += '<div><span class="badge bg-success me-2">Connected</span> <strong>' + escHtml(serviceId) + '</strong>';
-            html += ' <span class="text-muted">(' + cams.length + ' scale' + (cams.length !== 1 ? 's' : '') + ')</span></div>';
+            // Version and the URL this service believes it reports to. Both come
+            // from the service itself, so they show what is actually deployed and
+            // where it is pointed — answerable without remoting into the box.
+            if (svc.version) html += ' <span class="badge bg-secondary ms-1">v' + escHtml(svc.version) + '</span>';
+            html += ' <span class="text-muted">(' + cams.length + ' scale' + (cams.length !== 1 ? 's' : '') + ')</span>';
+            if (svc.serverUrl) html += '<div class="small text-muted">reports to ' + escHtml(svc.serverUrl) + '</div>';
+            html += '</div>';
             html += '<button class="btn btn-outline-primary btn-sm" onclick="addScale(\'' + escAttr(serviceId) + '\')"><i class="fa fa-plus"></i> Add Scale</button>';
             html += '</div><div class="card-body p-0"><table class="table table-sm table-striped mb-0">';
             html += '<thead><tr><th>Scale ID</th><th>Display Name</th><th>Brand</th><th>Connection</th>';
