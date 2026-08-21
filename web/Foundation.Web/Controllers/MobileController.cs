@@ -33,13 +33,17 @@ public class MobileController : Controller
     private readonly IHubContext<ScaleHub> _hub;
     private readonly AppSetupCache _setupCache;
     private readonly ILogger<MobileController> _log;
+    // Messages returned from here are shown in the phone's banner, so they
+    // follow the language the page is already showing.
+    private readonly Translator _t;
 
-    public MobileController(ScaleDbContext db, IHubContext<ScaleHub> hub, AppSetupCache setupCache, ILogger<MobileController> log)
+    public MobileController(ScaleDbContext db, IHubContext<ScaleHub> hub, AppSetupCache setupCache, ILogger<MobileController> log, Translator t)
     {
         _db = db;
         _hub = hub;
         _setupCache = setupCache;
         _log = log;
+        _t = t;
     }
 
     public IActionResult Index()
@@ -216,7 +220,7 @@ public class MobileController : Controller
         if (existing != null)
             return Conflict(new
             {
-                message = "This phone already has an open ticket.",
+                message = _t["This phone already has an open ticket."],
                 openTicket = TicketPayload(existing),
                 customFields = TicketCustomValues(existing.Ticket)
             });
@@ -224,10 +228,10 @@ public class MobileController : Controller
         var setup = _db.AppSetup.First();
         var scale = SiteScales.Resolve(_db, request.ScaleId);
         if (scale == null)
-            return BadRequest(new { message = "No scale configured." });
+            return BadRequest(new { message = _t["No scale configured."] });
 
         if (request.Weight < MinCaptureWeight)
-            return BadRequest(new { message = "No truck on the scale — nothing to weigh in." });
+            return BadRequest(new { message = _t["No truck on the scale — nothing to weigh in."] });
 
         // Ensure ticket number doesn't collide with existing tickets
         while (_db.Transactions.Any(t => t.Ticket == setup.TicketNumber.ToString()))
@@ -332,7 +336,7 @@ public class MobileController : Controller
         // phone can only ever close the load it opened.
         var transaction = OpenTicket();
         if (transaction == null)
-            return NotFound(new { message = "No open ticket on this phone." });
+            return NotFound(new { message = _t["No open ticket on this phone."] });
 
         var scale = SiteScales.Resolve(_db, request.ScaleId);
         var setupForTare = _setupCache.Get();
@@ -346,14 +350,14 @@ public class MobileController : Controller
         {
             var (_, tare, _) = UsableTare(setupForTare, transaction.Carrier, transaction.TruckId);
             if (tare == null)
-                return BadRequest(new { message = "That truck no longer has a stored empty weight. Weigh out on the scale." });
+                return BadRequest(new { message = _t["That truck no longer has a stored empty weight. Weigh out on the scale."] });
             reusedTare = tare;
         }
 
         // A reused tare is a stored number, not a reading, so the floor only
         // applies to a live weighment.
         if (reusedTare == null && request.Weight < MinCaptureWeight)
-            return BadRequest(new { message = "No truck on the scale — nothing to weigh out." });
+            return BadRequest(new { message = _t["No truck on the scale — nothing to weigh out."] });
 
         transaction.OutWeight = reusedTare ?? request.Weight;
         // A reused tare was not measured here, so no scale gets the credit.

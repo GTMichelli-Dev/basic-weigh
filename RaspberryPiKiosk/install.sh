@@ -55,6 +55,7 @@ default_url=""
 default_pin=""
 default_service_id=""
 default_printer_id=""
+default_lang=""
 if [[ -f "$CONFIG_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$CONFIG_FILE"
@@ -62,6 +63,7 @@ if [[ -f "$CONFIG_FILE" ]]; then
     default_pin="${KIOSK_PIN:-}"
     default_service_id="${SERVICE_ID:-}"
     default_printer_id="${PRINTER_ID:-}"
+    default_lang="${KIOSK_LANG:-}"
 fi
 
 # ---------- prompt for server URL ----------
@@ -138,6 +140,28 @@ else
     read -r -p "  Printer ID (blank to skip): " PRINTER_ID
 fi
 
+# Language — pins this kiosk to one language regardless of the site default set
+# in Setup. Blank follows the site default. The driver can still switch with the
+# EN/ES button on the kiosk screen; that choice is a cookie on this Pi and wins
+# until it is cleared, at which point the URL parameter applies again.
+echo "  LANG  — 'es' runs this kiosk in Spanish, 'en' in English. Leave blank to"
+echo "          follow the site default from the web app's Setup page."
+if [[ -n "$default_lang" ]]; then
+    read -r -p "  Language (en/es) [$default_lang]: " KIOSK_LANG
+    KIOSK_LANG="${KIOSK_LANG:-$default_lang}"
+else
+    read -r -p "  Language (en/es, blank to skip): " KIOSK_LANG
+fi
+# Normalise, and drop anything that isn't a language we ship rather than
+# sending the server a parameter it will ignore.
+KIOSK_LANG="$(echo "${KIOSK_LANG}" | tr '[:upper:]' '[:lower:]')"
+case "$KIOSK_LANG" in
+    en|es) ;;
+    "")    ;;
+    *)     say "Unknown language '$KIOSK_LANG' — following the site default instead."
+           KIOSK_LANG="" ;;
+esac
+
 # ---------- assemble KIOSK_URL with query string ----------
 # Minimal RFC 3986 percent-encoder for arbitrary parameter values so PINs and
 # IDs containing spaces or punctuation survive the shell-to-Chromium handoff.
@@ -163,6 +187,7 @@ add_param() {
 add_param "service-id" "$SERVICE_ID"
 add_param "printer-id" "$PRINTER_ID"
 add_param "pin"        "$KIOSK_PIN"
+add_param "lang"       "$KIOSK_LANG"
 
 KIOSK_URL="$SERVER_URL/Kiosk${query}"
 
@@ -179,6 +204,7 @@ SERVER_URL="$SERVER_URL"
 KIOSK_PIN="$KIOSK_PIN"
 SERVICE_ID="$SERVICE_ID"
 PRINTER_ID="$PRINTER_ID"
+KIOSK_LANG="$KIOSK_LANG"
 KIOSK_URL="$KIOSK_URL"
 CHROMIUM_BIN="$CHROMIUM_BIN"
 # How often the watchdog probes the server (seconds)
@@ -243,6 +269,7 @@ cat <<EOF
   Kiosk URL  : $KIOSK_URL
   Service ID : ${SERVICE_ID:-<none>}
   Printer ID : ${PRINTER_ID:-<none>}
+  Language   : ${KIOSK_LANG:-<site default>}
   Kiosk PIN  : $( [[ -n "$KIOSK_PIN" ]] && echo '<set>' || echo '<none>' )
   Loop script: $SCRIPT_DIR/kiosk-loop.sh
   Config     : $CONFIG_FILE

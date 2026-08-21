@@ -1,0 +1,37 @@
+@*
+    Bridges the server-side catalog into a page's own JavaScript.
+
+    The kiosk and phone screens build most of their text at runtime — prompt
+    titles, validation hints, overlay messages — so a Razor-only wrapper would
+    leave the majority of what a driver reads in English. Including this partial
+    inside <head> (before the page's own script) gives that script:
+
+        T('Place Truck on Scale')        -> translated, or the argument itself
+        TF('Ticket #{0}', ticketNumber)  -> translated, then placeholders filled
+
+    An English page ships an empty catalog, so T() costs one failed lookup and
+    the payload is a few bytes.
+*@
+<script>
+    window.LANG = '@L.Code';
+    window.LANG_STRINGS = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(L.Catalog));
+
+    // Translate. An untranslated string returns unchanged, so a missed call
+    // site degrades to English instead of to a blank.
+    window.T = function (english) {
+        return Object.prototype.hasOwnProperty.call(window.LANG_STRINGS, english)
+            ? window.LANG_STRINGS[english]
+            : english;
+    };
+
+    // Translate, then fill {0}, {1}, ... from the remaining arguments. The
+    // placeholders are part of the catalog key, so a translation is free to
+    // reorder them.
+    window.TF = function (english) {
+        var args = arguments;
+        return window.T(english).replace(/\{(\d+)\}/g, function (whole, index) {
+            var value = args[parseInt(index, 10) + 1];
+            return (value === undefined || value === null) ? whole : value;
+        });
+    };
+</script>

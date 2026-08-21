@@ -4,12 +4,14 @@
     var header1 = ViewBag.Header1 as string ?? "Foundation";
 }
 <!DOCTYPE html>
-<html lang="en">
+<html lang="@L.Code">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-    <title>@header1 - Signature Pad</title>
+    <title>@header1 - @L["Signature Pad"]</title>
     <link rel="icon" type="image/x-icon" href="/api/setup/icon" />
+    @* T() / TF() for the status strings further down. *@
+    @await Html.PartialAsync("_LangJs")
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { height: 100%; }
@@ -35,6 +37,16 @@
         #standbyView p { font-size: 1.2rem; color: #9aa; }
         #connState { position: fixed; bottom: 12px; left: 0; right: 0; text-align: center; font-size: .85rem; color: #566; }
         #connState.bad { color: #e66; }
+        /* Language toggle, offered only on standby — the driver is not asked
+           to make this choice with a pen in their hand. */
+        .lang-btn {
+            position: fixed; top: 12px; right: 12px;
+            min-width: 48px; padding: 8px 12px;
+            border: 1px solid #445; border-radius: 8px;
+            background: #1b1b1b; color: #9aa;
+            font-size: .9rem; font-weight: 700; letter-spacing: 1px;
+            text-decoration: none;
+        }
 
         /* ----- Capture ----- */
         #captureView { background: #fff; color: #000; padding: 14px; gap: 10px; }
@@ -69,36 +81,38 @@
 <body>
     <!-- Standby: shown until the operator requests a signature -->
     <div id="standbyView" class="view active">
+        @* Carries pad-id and pin through, so toggling keeps the pad mapped. *@
+        <a class="lang-btn" href="@L.SwitchUrl" title='@L.SwitchTitle'>@L.SwitchLabel</a>
         <img src="/api/setup/icon" alt="" onerror="this.style.display='none'" />
         <h1>@header1</h1>
-        <p>Please wait&hellip;</p>
+        <p>@L["Please wait…"]</p>
     </div>
 
     <!-- Capture: driver signs here -->
     <div id="captureView" class="view">
         <div class="cap-header">
-            <span class="title">Ticket <span id="capTicket"></span></span>
+            <span class="title">@L["Ticket"] <span id="capTicket"></span></span>
             <span class="details" id="capDetails"></span>
         </div>
         <div class="canvas-wrap">
             <canvas id="sigCanvas"></canvas>
-            <div class="sign-hint" id="signHint">Sign here</div>
+            <div class="sign-hint" id="signHint">@L["Sign here"]</div>
         </div>
         <div class="btn-row">
-            <button type="button" class="btn btn-clear" id="btnClear">Clear</button>
+            <button type="button" class="btn btn-clear" id="btnClear">@L["Clear"]</button>
             <div style="display:flex; gap:10px;">
-                <button type="button" class="btn btn-cancel" id="btnCancel">Cancel</button>
-                <button type="button" class="btn btn-accept" id="btnAccept">Accept</button>
+                <button type="button" class="btn btn-cancel" id="btnCancel">@L["Cancel"]</button>
+                <button type="button" class="btn btn-accept" id="btnAccept">@L["Accept"]</button>
             </div>
         </div>
     </div>
 
     <!-- Brief confirmation before returning to standby -->
     <div id="doneView" class="view">
-        <h1>Thank you!</h1>
+        <h1>@L["Thank you!"]</h1>
     </div>
 
-    <div id="connState">connecting&hellip;</div>
+    <div id="connState">@L["connecting…"]</div>
 
     <script src="/js/signalr/signalr.min.js"></script>
     <script src="/js/signature-pad.js"></script>
@@ -153,14 +167,14 @@
 
             function join() {
                 return conn.invoke('JoinSignaturePadGroup', PAD_ID)
-                    .then(function () { setConnState('pad "' + PAD_ID + '" • connected'); });
+                    .then(function () { setConnState(TF('pad "{0}" • connected', PAD_ID)); });
             }
 
             conn.on('RequestSignature', function (req) {
                 currentTicket = req.ticket;
                 document.getElementById('capTicket').textContent = req.ticket;
                 var details = [req.carrier, req.truckId].filter(Boolean).join(' — ');
-                if (req.netWeight && req.netWeight !== '0') details += (details ? ' • ' : '') + 'Net ' + req.netWeight + ' lb';
+                if (req.netWeight && req.netWeight !== '0') details += (details ? ' • ' : '') + TF('Net {0} lb', req.netWeight);
                 document.getElementById('capDetails').textContent = details;
                 document.getElementById('signHint').style.display = 'block';
                 show('captureView');
@@ -174,13 +188,13 @@
                 if (!currentTicket || ticket === currentTicket) toStandby();
             });
 
-            conn.onreconnecting(function () { setConnState('reconnecting…', true); });
+            conn.onreconnecting(function () { setConnState(T('reconnecting…'), true); });
             conn.onreconnected(function () { join(); });
-            conn.onclose(function () { setConnState('disconnected — restart the page', true); });
+            conn.onclose(function () { setConnState(T('disconnected — restart the page'), true); });
 
             function start() {
                 conn.start().then(join).catch(function () {
-                    setConnState('connection failed — retrying…', true);
+                    setConnState(T('connection failed — retrying…'), true);
                     setTimeout(start, 5000);
                 });
             }
@@ -211,7 +225,7 @@
                     show('doneView');
                     doneTimer = setTimeout(toStandby, 2500);
                 }).catch(function () {
-                    alert('Could not save the signature. Please try again.');
+                    alert(T('Could not save the signature. Please try again.'));
                 }).finally(function () {
                     btn.disabled = false;
                 });

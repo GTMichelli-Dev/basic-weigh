@@ -147,6 +147,20 @@
                                 </div>
                             </div>
                             <div class="mb-2">
+                                <label asp-for="Language" class="form-label mb-0 small"></label>
+                                <select asp-for="Language" class="form-select form-select-sm">
+                                    <option value="en">English</option>
+                                    <option value="es">Español (Spanish)</option>
+                                </select>
+                                <div class="form-text small">
+                                    Default language for the kiosk, the phone page (/Mobile), the signature pad
+                                    and the ticket views. A device can override it with the EN/ES button on
+                                    those screens, or with <code>?lang=es</code> in its URL — so one kiosk can
+                                    run in Spanish while the rest of the site stays English. Office and admin
+                                    pages are English either way.
+                                </div>
+                            </div>
+                            <div class="mb-2">
                                 <label asp-for="Theme" class="form-label mb-0 small"></label>
                                 <select asp-for="Theme" class="form-select form-select-sm">
                                     <option value="default">Default (Blue)</option>

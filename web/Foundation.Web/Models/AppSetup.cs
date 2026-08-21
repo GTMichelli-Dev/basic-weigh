@@ -50,6 +50,16 @@ public class AppSetup
     [Display(Name = "Theme")]
     public string Theme { get; set; } = "default";
 
+    /// <summary>
+    /// Site default language for the driver-facing screens (kiosk, phone,
+    /// signature pad, ticket views): "en" or "es". A device overrides it with
+    /// the on-screen toggle, or with ?lang= in its URL — a kiosk Pi pinned to
+    /// Spanish at install time stays Spanish regardless of this.
+    /// </summary>
+    [StringLength(5)]
+    [Display(Name = "Language")]
+    public string Language { get; set; } = "en";
+
     // Kiosk prompts. Each user-facing prompt is split into "On Inbound" / "On Outbound"
     // checkboxes (so the operator only sees it when relevant) plus an "Allow Skip" flag
     // that controls whether the kiosk shows a "— None —" row + Skip button.

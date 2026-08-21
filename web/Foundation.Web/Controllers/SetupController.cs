@@ -44,6 +44,10 @@ public class SetupController : Controller
         existing.DemoMode = setup.DemoMode;
         existing.KioskCount = setup.KioskCount;
         existing.Theme = setup.Theme;
+        // Site default for the driver-facing screens. An unrecognised code
+        // (hand-posted form, older client) falls back to English rather than
+        // storing something Lang.Resolve would ignore anyway.
+        existing.Language = Lang.Normalize(setup.Language) ?? Lang.English;
         existing.PromptKioskCommodityOnInbound = setup.PromptKioskCommodityOnInbound;
         existing.PromptKioskCommodityOnOutbound = setup.PromptKioskCommodityOnOutbound;
         existing.AllowSkipCommodity = setup.AllowSkipCommodity;

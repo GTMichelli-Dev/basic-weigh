@@ -15,14 +15,18 @@ public class KioskController : Controller
     private readonly IHubContext<ScaleHub> _hub;
     private readonly AppSetupCache _setupCache;
     private readonly ILogger<KioskController> _log;
+    // Messages returned from here land on the kiosk's overlays, so they follow
+    // the language the kiosk page is already showing.
+    private readonly Translator _t;
 
-    public KioskController(ScaleDbContext db, IScaleService scaleService, IHubContext<ScaleHub> hub, AppSetupCache setupCache, ILogger<KioskController> log)
+    public KioskController(ScaleDbContext db, IScaleService scaleService, IHubContext<ScaleHub> hub, AppSetupCache setupCache, ILogger<KioskController> log, Translator t)
     {
         _db = db;
         _scaleService = scaleService;
         _hub = hub;
         _setupCache = setupCache;
         _log = log;
+        _t = t;
     }
 
     public IActionResult Index([FromQuery(Name = "service-id")] string? serviceId = null,
@@ -87,7 +91,7 @@ public class KioskController : Controller
             .OrderByDescending(x => x.DateIn)
             .FirstOrDefault();
 
-        if (transaction == null) return NotFound(new { message = "No open ticket" });
+        if (transaction == null) return NotFound(new { message = _t["No open ticket"] });
 
         return Json(new
         {
@@ -115,19 +119,19 @@ public class KioskController : Controller
     {
         var setup = _setupCache.Get();
         if (!setup.UseCardReader)
-            return Ok(new { ok = false, reason = "disabled", message = "Card weighing is turned off" });
+            return Ok(new { ok = false, reason = "disabled", message = _t["Card weighing is turned off"] });
 
         var number = (request.CardNumber ?? "").Trim();
         if (number.Length == 0)
-            return BadRequest(new { ok = false, reason = "empty", message = "No card number" });
+            return BadRequest(new { ok = false, reason = "empty", message = _t["No card number"] });
 
         var card = _db.Cards.AsEnumerable()
             .FirstOrDefault(c => string.Equals(c.CardNumber, number, StringComparison.OrdinalIgnoreCase));
 
         if (card == null)
-            return Ok(new { ok = false, reason = "unknown", message = "Card Not Recognized" });
+            return Ok(new { ok = false, reason = "unknown", message = _t["Card Not Recognized"] });
         if (!card.Enabled)
-            return Ok(new { ok = false, reason = "disabled-card", message = "Card Disabled" });
+            return Ok(new { ok = false, reason = "disabled-card", message = _t["Card Disabled"] });
 
         // An open ticket outranks the issued flag: a driver who weighed in must
         // always be able to weigh out, even if the card was deactivated behind
@@ -141,7 +145,7 @@ public class KioskController : Controller
         }
 
         if (openTicket == null && !card.Issued)
-            return Ok(new { ok = false, reason = "not-issued", message = "Card Not Active — See Loader Operator" });
+            return Ok(new { ok = false, reason = "not-issued", message = _t["Card Not Active — See Loader Operator"] });
 
         var values = CardFields.ValuesOf(_db, card);
         var siteId = request.ScaleId.HasValue ? _db.Scales.Find(request.ScaleId.Value)?.SiteId : null;
@@ -245,14 +249,16 @@ public class KioskController : Controller
         var transaction = _db.Transactions
             .FirstOrDefault(t => t.Ticket == ticketNumber);
 
+        // The kiosk picks its overlay from `reason`; `message` is for display
+        // and is translated, so the two must not be conflated.
         if (transaction == null)
-            return NotFound(new { message = "Ticket not found" });
+            return NotFound(new { reason = "not-found", message = _t["Ticket not found"] });
 
         if (transaction.Void)
-            return BadRequest(new { message = "Ticket is voided" });
+            return BadRequest(new { reason = "voided", message = _t["Ticket is voided"] });
 
         if (transaction.DateOut != null)
-            return BadRequest(new { message = "Ticket already completed" });
+            return BadRequest(new { reason = "completed", message = _t["Ticket already completed"] });
 
         return Json(new
         {
@@ -285,9 +291,9 @@ public class KioskController : Controller
             card = _db.Cards.AsEnumerable().FirstOrDefault(c =>
                 string.Equals(c.CardNumber, request.CardNumber.Trim(), StringComparison.OrdinalIgnoreCase));
             if (card == null || !card.Enabled)
-                return BadRequest(new { message = "Card not recognized." });
+                return BadRequest(new { message = _t["Card not recognized."] });
             if (!card.Issued && string.IsNullOrEmpty(card.OpenTicket))
-                return BadRequest(new { message = "Card is not active — see the loader operator." });
+                return BadRequest(new { message = _t["Card is not active — see the loader operator."] });
 
             cardValues = CardFields.ValuesOf(_db, card);
             request.Commodity ??= cardValues.GetValueOrDefault("commodity");
@@ -462,7 +468,7 @@ public class KioskController : Controller
             .FirstOrDefault(t => t.Ticket == request.Ticket && !t.Void && t.DateOut == null);
 
         if (transaction == null)
-            return NotFound(new { message = "Ticket not found" });
+            return NotFound(new { message = _t["Ticket not found"] });
 
         transaction.OutWeight = request.Weight;
         transaction.OutScale = request.ScaleName;
@@ -611,7 +617,7 @@ public class KioskController : Controller
     {
         var transaction = _db.Transactions.Find(ticketId);
         if (transaction == null)
-            return NotFound(new { message = "Ticket not found" });
+            return NotFound(new { message = _t["Ticket not found"] });
 
         var type = transaction.DateOut != null ? "weighout" : "weighin";
 

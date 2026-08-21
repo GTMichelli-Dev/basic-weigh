@@ -7,10 +7,10 @@
 }
 
 <!DOCTYPE html>
-<html>
+<html lang="@L.Code">
 <head>
     <meta charset="utf-8" />
-    <title>Ticket @Model.Ticket</title>
+    <title>@L["Ticket"] @Model.Ticket</title>
     <style>
         body {
             font-family: 'Courier New', monospace;
@@ -119,11 +119,11 @@
 {
     <div class="photo-ticket-row">
         <div class="photo-side">
-            <img src="/api/ticket/@Model.Ticket/image?direction=in&v=@DateTime.UtcNow.Ticks" alt="Inbound Photo" />
-            <div class="photo-label">Inbound — @Model.DateIn.ToString("MM/dd/yyyy hh:mm tt")</div>
+            <img src="/api/ticket/@Model.Ticket/image?direction=in&v=@DateTime.UtcNow.Ticks" alt='@L["Inbound Photo"]' />
+            <div class="photo-label">@L.T("Inbound — {0}", Model.DateIn.ToString("MM/dd/yyyy hh:mm tt"))</div>
         </div>
         <div class="ticket-side">
-            <div class="ticket-type-label">Inbound Ticket</div>
+            <div class="ticket-type-label">@L["Inbound Ticket"]</div>
             <div class="ticket">
                 @await Html.PartialAsync("_TicketBody", Model, new ViewDataDictionary(ViewData) {
                     { "TicketMode", "inbound" }
@@ -151,11 +151,11 @@ else if (!isCompleted)
     {
         <div class="photo-ticket-row">
             <div class="photo-side">
-                <img src="/api/ticket/@Model.Ticket/image?direction=out&v=@DateTime.UtcNow.Ticks" alt="Outbound Photo" />
-                <div class="photo-label">Outbound — @(Model.DateOut?.ToString("MM/dd/yyyy hh:mm tt") ?? "")</div>
+                <img src="/api/ticket/@Model.Ticket/image?direction=out&v=@DateTime.UtcNow.Ticks" alt='@L["Outbound Photo"]' />
+                <div class="photo-label">@L.T("Outbound — {0}", Model.DateOut?.ToString("MM/dd/yyyy hh:mm tt") ?? "")</div>
             </div>
             <div class="ticket-side">
-                <div class="ticket-type-label">Completed Ticket</div>
+                <div class="ticket-type-label">@L["Completed Ticket"]</div>
                 <div class="ticket">
                     @await Html.PartialAsync("_TicketBody", Model, new ViewDataDictionary(ViewData) {
                         { "TicketMode", "completed" }
@@ -179,7 +179,7 @@ else if (!isCompleted)
     {
         @* Has inbound photo but no outbound — show completed ticket without photo *@
         <div class="no-photo-ticket">
-            <div class="ticket-type-label">Completed Ticket</div>
+            <div class="ticket-type-label">@L["Completed Ticket"]</div>
             <div class="ticket">
                 @await Html.PartialAsync("_TicketBody", Model, new ViewDataDictionary(ViewData) {
                     { "TicketMode", "completed" }
@@ -192,12 +192,12 @@ else if (!isCompleted)
 @if (Model.Void)
 {
     <div style="text-align: center; color: red; font-size: 28px; font-weight: bold; margin-top: 10px;">
-        *** VOID ***
+        @L["*** VOID ***"]
     </div>
 }
 
 <div class="print-btn">
-    <button onclick="window.print()" style="padding: 10px 30px; font-size: 16px; cursor: pointer;">Print Ticket</button>
+    <button onclick="window.print()" style="padding: 10px 30px; font-size: 16px; cursor: pointer;">@L["Print Ticket"]</button>
 </div>
 </body>
 </html>

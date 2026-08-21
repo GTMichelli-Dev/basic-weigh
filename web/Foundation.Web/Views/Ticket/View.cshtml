@@ -6,11 +6,11 @@
 }
 
 <!DOCTYPE html>
-<html lang="en">
+<html lang="@L.Code">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>@header1 - Ticket Preview</title>
+    <title>@header1 - @L["Ticket Preview"]</title>
 
     <!-- CSS -->
     <link href="~/css/devextreme/bootstrap.css" rel="stylesheet" />
@@ -35,8 +35,8 @@
                 <img src="/api/setup/icon?v=@DateTime.UtcNow.Ticks" alt="" style="height: 28px; width: 28px; margin-right: 6px; vertical-align: text-bottom;" />
                 <strong>@header1</strong>
             </a>
-            <span class="navbar-text ms-2" style="font-weight: 600; color: var(--bw-text, #333);">Ticket Preview</span>
-            <a href="/Transaction/CompletedTrucks" class="btn btn-sm ms-auto" style="background: var(--bw-btn-action-bg, #f0f8ff); border: 1px solid var(--bw-btn-action-border, #2ea3f2); color: var(--bw-btn-action-text, #333);">Back to Completed Trucks</a>
+            <span class="navbar-text ms-2" style="font-weight: 600; color: var(--bw-text, #333);">@L["Ticket Preview"]</span>
+            <a href="/Transaction/CompletedTrucks" class="btn btn-sm ms-auto" style="background: var(--bw-btn-action-bg, #f0f8ff); border: 1px solid var(--bw-btn-action-border, #2ea3f2); color: var(--bw-btn-action-text, #333);">@L["Back to Completed Trucks"]</a>
         </div>
     </nav>
 

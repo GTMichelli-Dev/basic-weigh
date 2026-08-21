@@ -26,6 +26,7 @@ Foundation is a web-based truck scale management application for weighing inboun
   - [Scales (multi-scale)](#scales-multi-scale)
   - [Custom Fields & Ticket Printing](#custom-fields--ticket-printing)
   - [Prox Card Weighing](#prox-card-weighing)
+  - [Language (English / Spanish)](#language-english--spanish)
   - [User Login System](#user-login-system)
   - [Updating Device Definitions](#updating-device-definitions)
   - [Rebuilding the Database](#rebuilding-the-database)
@@ -53,6 +54,7 @@ Foundation is a web-based truck scale management application for weighing inboun
 - **Remote Printing** — Print tickets to thermal printers via Raspberry Pi print agents over SignalR
 - **Ticket Designer** — Edit ticket layouts with the built-in DevExpress Report Designer
 - **Driver Signature Capture** — Operator-device overlay or a remote signature-pad tablet (opened by scanning a QR code on the Setup page)
+- **Bilingual (English / Spanish)** — The driver-facing screens — kiosk, the phone page, the signature pad and the ticket views — render in either language. A site default is set in Setup, each device can override it with an on-screen **EN / ES** button, and a kiosk Pi can be pinned to one language at install time. Office and admin pages are English
 - **User Login & Roles** — Optional login with User, Manager, and Admin roles
 - **Customizable** — Themes, custom icons, configurable kiosk prompts, and editable ticket templates; Setup changes auto-save
 - **Demo Mode** — Built-in scale simulator for testing without hardware, one independent simulator per defined scale
@@ -281,7 +283,7 @@ cd ~/foundation/RaspberryPiKiosk
 sudo reboot
 ```
 
-`install.sh` prompts for four values (all but the first are optional):
+`install.sh` prompts for five values (all but the first are optional):
 
 | Prompt | Becomes URL parameter | Default on re-run |
 |--------|----------------------|-------------------|
@@ -289,6 +291,7 @@ sudo reboot
 | Kiosk PIN | `?pin=…` (required when User Login is on) | last value used |
 | Service ID | `?service-id=…` (`Browser` or blank for browser-print) | last value used |
 | Printer ID | `?printer-id=…` (e.g. `Zebra_LP2844`) | last value used |
+| Language | `?lang=…` (`en` / `es`; blank follows the Setup default) | last value used |
 
 [↑ Back to top](#table-of-contents)
 
@@ -425,7 +428,7 @@ sudo systemctl restart foundation
 Navigate to **Setup** in the web interface to configure. **Changes auto-save** — there is no Save button; a "Saved ✓" indicator confirms each change (text fields save when you leave them). Changing the theme reloads the page so it applies immediately.
 
 - **Company & Ticket** — Header lines (company name, address, phone), ticket numbering
-- **System** — Demo mode, kiosk count (0/1/2), login mode, theme, custom icon, driver signature capture (the Remote Signature Pad option shows a **QR code** — scan it with the tablet to open the pad, no typing)
+- **System** — Demo mode, kiosk count (0/1/2), login mode, **language**, theme, custom icon, driver signature capture (the Remote Signature Pad option shows a **QR code** — scan it with the tablet to open the pad, no typing)
 - **Fields** — Show/hide the standard fields, set the **sort order** for standard and custom fields (one shared scale, so a custom field can slot between built-ins), and manage **custom fields** (text, dropdown, integer/decimal with min/max/precision, required, show-on-ticket, kiosk prompting)
 - **Locations** — Physical yards/facilities; with two or more, operators pick theirs in the navbar
 - **Email** — SMTP server, scheduled reports, and per-load emails (see [Email Reports](#email-reports)). This tab saves through its own API, so its edits are independent of the auto-save above
@@ -548,6 +551,60 @@ can only hold a choice a driver could have picked.
 weighs out. Voiding or deleting an open ticket frees its card, and closing a card's ticket
 from the office releases it just like the kiosk does. Every ticket records the card it was
 weighed with.
+
+### Language (English / Spanish)
+
+The driver-facing screens are bilingual. **Setup → System → Language** sets the
+site default; everything else is an override on top of it.
+
+**What is translated**
+
+| Screen | Translated |
+|--------|-----------|
+| Kiosk (`/Kiosk`) | Yes — every prompt, overlay, button and error |
+| Phone page (`/Mobile`) | Yes |
+| Signature pad (`/SignaturePad`) | Yes |
+| Ticket views + browser-print ticket | Yes — the labels |
+| Dashboard, weigh forms, Reports, Edit Tables, Setup, Users | No — English |
+| Printed tickets from the print agents | No — see below |
+
+**How a screen picks its language**, first match wins:
+
+1. `?lang=es` in the URL — pins one device regardless of the site default.
+2. The `bw.lang` cookie — what the on-screen **EN / ES** button leaves behind.
+3. The site default from Setup.
+
+So one kiosk can run in Spanish while the office and every other kiosk stay in
+English. Toggling on a kiosk keeps `pin`, `service-id`, `printer-id`,
+`scale-id` and `reader-id` in the URL, so a language switch never unmaps a
+kiosk from its scale or printer.
+
+Kiosks with **Hide On-Screen Buttons** turned on show no toggle — that kiosk is
+keyboard-driven, so set its language with `?lang=` at install (`install.sh`
+prompts for it) or leave it on the site default.
+
+**What stays in English, deliberately**
+
+- **Your own data.** Customer, carrier, commodity, bin, location and
+  custom-field *names* come out of your tables and display exactly as the
+  office typed them. A Spanish kiosk still lists `Corn` if that is what is in
+  Edit Tables — translating master data is a data decision, not a code one.
+- **Physical tickets.** The print agents render the DevExpress `.repx` layouts,
+  which are customer-editable files owned by each site (`Reports/*.repx`, kept
+  out of publish so a redeploy never overwrites local edits). Change their
+  wording in **Setup → Ticket Designers** if you want Spanish tickets. The
+  browser-print ticket (`/Ticket/Print`) *is* translated, so a site using
+  browser printing gets Spanish tickets and a site using print agents does not
+  — worth knowing before you switch a yard over.
+
+**Adding or changing wording**
+
+All Spanish lives in one file, `web/Foundation.Web/Services/LangCatalog.cs`, as
+plain `["English source"] = "Spanish"` pairs. There is no translation service
+and no network call at runtime — a kiosk with no internet renders Spanish fine.
+A string with no entry falls back to English rather than rendering blank, so a
+new feature is never broken by a missing translation; add the line when you get
+to it.
 
 ### User Login System
 

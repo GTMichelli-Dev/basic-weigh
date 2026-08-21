@@ -5,11 +5,13 @@
     var kioskDark = Model.KioskDarkMode;
 }
 <!DOCTYPE html>
-<html lang="en">
+<html lang="@L.Code">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=1280, height=800, initial-scale=1.0, user-scalable=no" />
-    <title>Foundation - Kiosk</title>
+    <title>Foundation - @L["Kiosk"]</title>
+    @* T() / TF() for the runtime-built strings further down. *@
+    @await Html.PartialAsync("_LangJs")
     <!-- Roboto Mono: clean unmarked zero, used by the weight + ticket-entry
          displays. Loaded from Google Fonts; falls back to DejaVu/Consolas/Menlo
          if the kiosk is offline (the system fonts have slashed/dotted zeros on
@@ -92,6 +94,33 @@
             position: relative;
         }
         #kiosk-header img { height: 40px; width: 40px; }
+        /* Language toggle. Sized as a real touch target — a driver taps this
+           with a work glove on — but parked in the header corner so it never
+           competes with the weight or the action buttons. */
+        .kiosk-lang {
+            position: absolute;
+            left: 16px;
+            top: 10px;
+            min-width: 64px;
+            padding: 8px 14px;
+            border: 2px solid #444;
+            border-radius: 8px;
+            background: #1a1a1a;
+            color: #ccc;
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .kiosk-lang:active { background: #333; color: #fff; }
+        body.kiosk-light .kiosk-lang {
+            border-color: #bbb;
+            background: #f2f2f2;
+            color: #444;
+        }
         #kiosk-header .company-name {
             font-size: 1.6rem;
             font-weight: 700;
@@ -313,6 +342,7 @@
         body.kiosk-hide-buttons #confirm-accept,
         body.kiosk-hide-buttons #btn-reprint,
         body.kiosk-hide-buttons #btn-complete-done,
+        body.kiosk-hide-buttons .kiosk-lang,
         body.kiosk-hide-buttons #state-ready .btn-row {
             display: none !important;
         }
@@ -770,6 +800,9 @@
 <div id="kiosk" data-theme="@theme">
     <!-- HEADER -->
     <div id="kiosk-header">
+        @* Swaps only ?lang= — pin, service-id, printer-id, scale-id and
+           reader-id ride along, so toggling never unmaps the kiosk. *@
+        <a class="kiosk-lang" href="@L.SwitchUrl" title='@L.SwitchTitle'>@L.SwitchLabel</a>
         <img src="/api/setup/icon" alt="Icon" />
         <span class="company-name">@(Model.Header1 ?? "Foundation")</span>
         @if (Model.DemoMode)
@@ -777,8 +810,8 @@
             <div class="header-sim">
                 <span class="sim-weight-val" id="simWeightVal">0</span>
                 <input type="range" id="simSlider" min="0" max="200000" value="0" step="100" />
-                <label><input type="checkbox" id="simMotion" /> Motion</label>
-                <label><input type="checkbox" id="simError" /> Error</label>
+                <label><input type="checkbox" id="simMotion" /> @L["Motion"]</label>
+                <label><input type="checkbox" id="simError" /> @L["Error"]</label>
             </div>
         }
     </div>
@@ -796,33 +829,33 @@
 
         <!-- IDLE: Place truck on scale -->
         <div id="state-idle" class="kiosk-state active">
-            <div class="big-message">Place Truck on Scale</div>
+            <div class="big-message">@L["Place Truck on Scale"]</div>
         </div>
 
         <!-- READY: Weigh In / Weigh Out -->
         <div id="state-ready" class="kiosk-state">
             <!-- Shown only when this kiosk is mapped to a card reader. -->
-            <div class="kiosk-card-hint card-hint" style="display:none;">PRESENT YOUR CARD</div>
+            <div class="kiosk-card-hint card-hint" style="display:none;">@L["PRESENT YOUR CARD"]</div>
             <div class="btn-row btn-stack">
                 <button class="kiosk-btn btn-green btn-wide" id="btn-new-load">
-                    PRESS ENTER TO WEIGH IN
+                    @L["PRESS ENTER TO WEIGH IN"]
                 </button>
                 <button class="kiosk-btn btn-blue btn-wide" id="btn-enter-ticket">
-                    SCAN BAR CODE OR KEY IN TICKET #
+                    @L["SCAN BAR CODE OR KEY IN TICKET #"]
                 </button>
             </div>
             <!-- Shown only when on-screen buttons are hidden — operator drives via Enter. -->
             <div class="kiosk-ready-label">
-                <span>PRESS</span>
-                <span class="kiosk-ready-label-key">ENTER</span>
-                <span>TO WEIGH</span>
+                <span>@L["PRESS"]</span>
+                <span class="kiosk-ready-label-key">@L["ENTER"]</span>
+                <span>@L["TO WEIGH"]</span>
             </div>
         </div>
 
         <!-- ENTERING TICKET: Numpad -->
         <div id="state-entering-ticket" class="kiosk-state">
             <div class="ticket-entry">
-                <div class="ticket-label">Enter Ticket Number</div>
+                <div class="ticket-label">@L["Enter Ticket Number"]</div>
                 <div class="ticket-value" id="ticket-display">&nbsp;</div>
                 <div class="numpad">
                     <button class="numpad-btn" data-num="1">1</button>
@@ -834,31 +867,31 @@
                     <button class="numpad-btn" data-num="7">7</button>
                     <button class="numpad-btn" data-num="8">8</button>
                     <button class="numpad-btn" data-num="9">9</button>
-                    <button class="numpad-btn btn-clr" id="numpad-clear">CLR</button>
+                    <button class="numpad-btn btn-clr" id="numpad-clear">@L["CLR"]</button>
                     <button class="numpad-btn" data-num="0">0</button>
-                    <button class="numpad-btn btn-ent" id="numpad-enter">ENT</button>
+                    <button class="numpad-btn btn-ent" id="numpad-enter">@L["ENT"]</button>
                 </div>
                 <div style="margin-top: 16px;">
-                    <button class="list-btn list-btn-cancel" id="ticket-cancel" style="padding: 16px 60px; font-size: 1.4rem;">Cancel</button>
+                    <button class="list-btn list-btn-cancel" id="ticket-cancel" style="padding: 16px 60px; font-size: 1.4rem;">@L["Cancel"]</button>
                 </div>
             </div>
         </div>
 
         <!-- CHECKING TICKET -->
         <div id="state-checking-ticket" class="kiosk-state">
-            <div class="waiting-message">Checking Ticket<span class="waiting-dots"></span></div>
+            <div class="waiting-message">@L["Checking Ticket"]<span class="waiting-dots"></span></div>
         </div>
 
         <!-- MOTION WAIT -->
         <div id="state-motion-wait" class="kiosk-state">
-            <div class="waiting-message">Waiting for Scale<span class="waiting-dots"></span></div>
-            <div style="font-size:1.5rem; color:#ffff00; margin-top:16px;">Motion Detected — Please Wait</div>
+            <div class="waiting-message">@L["Waiting for Scale"]<span class="waiting-dots"></span></div>
+            <div style="font-size:1.5rem; color:#ffff00; margin-top:16px;">@L["Motion Detected — Please Wait"]</div>
         </div>
 
         <!-- PROMPT: List Selector (reused for all prompts) -->
         <div id="state-prompt" class="kiosk-state">
             <div class="list-selector">
-                <div class="list-title" id="prompt-title">Select Item</div>
+                <div class="list-title" id="prompt-title">@L["Select Item"]</div>
                 <div class="list-container" id="prompt-list"></div>
                 <!-- Numeric entry pane for number-type custom field prompts.
                      Shares the title/Cancel/Skip/Select chrome with the list. -->
@@ -881,9 +914,9 @@
                     </div>
                 </div>
                 <div class="list-buttons">
-                    <button class="list-btn list-btn-cancel" id="prompt-cancel">Cancel</button>
-                    <button class="list-btn list-btn-skip" id="prompt-skip">Skip</button>
-                    <button class="list-btn list-btn-select" id="prompt-select">Select</button>
+                    <button class="list-btn list-btn-cancel" id="prompt-cancel">@L["Cancel"]</button>
+                    <button class="list-btn list-btn-skip" id="prompt-skip">@L["Skip"]</button>
+                    <button class="list-btn list-btn-select" id="prompt-select">@L["Select"]</button>
                 </div>
             </div>
         </div>
@@ -891,85 +924,85 @@
         <!-- CONFIRM: review the prompt answers before weighing/saving -->
         <div id="state-confirm" class="kiosk-state">
             <div class="list-selector">
-                <div class="list-title" id="confirm-title">Confirm</div>
+                <div class="list-title" id="confirm-title">@L["Confirm"]</div>
                 <div class="list-container" id="confirm-summary"></div>
                 <div class="list-buttons">
-                    <button class="list-btn list-btn-cancel" id="confirm-cancel">Cancel</button>
-                    <button class="list-btn list-btn-select" id="confirm-accept">Confirm &amp; Weigh</button>
+                    <button class="list-btn list-btn-cancel" id="confirm-cancel">@L["Cancel"]</button>
+                    <button class="list-btn list-btn-select" id="confirm-accept">@L["Confirm & Weigh"]</button>
                 </div>
-                <div class="kiosk-confirm-label">PRESS ENTER TO CONFIRM &mdash; ESC TO CANCEL</div>
+                <div class="kiosk-confirm-label">@L["PRESS ENTER TO CONFIRM — ESC TO CANCEL"]</div>
             </div>
         </div>
 
         <!-- SAVING -->
         <div id="state-saving" class="kiosk-state">
-            <div class="waiting-message">Saving<span class="waiting-dots"></span></div>
+            <div class="waiting-message">@L["Saving"]<span class="waiting-dots"></span></div>
         </div>
 
         <!-- COMPLETE -->
         <div id="state-complete" class="kiosk-state">
-            <div class="big-message" id="complete-header">Complete</div>
+            <div class="big-message" id="complete-header">@L["Complete"]</div>
             <div class="complete-info" id="complete-info"></div>
             <!-- Card weighing: tells the driver whether to keep the card or
                  hand it back. Hidden on keyed-in tickets. -->
             <div class="complete-card-note" id="complete-card-note" style="display:none;"></div>
             <div id="demo-ticket-area"></div>
             <div class="complete-buttons">
-                <button class="kiosk-btn btn-blue" id="btn-reprint">Reprint</button>
-                <button class="kiosk-btn btn-red" id="btn-complete-done">Done</button>
+                <button class="kiosk-btn btn-blue" id="btn-reprint">@L["Reprint"]</button>
+                <button class="kiosk-btn btn-red" id="btn-complete-done">@L["Done"]</button>
             </div>
             <!-- Shown only when on-screen buttons are hidden — operator drives via Enter. -->
-            <div class="kiosk-reprint-label">PRESS ENTER FOR REPRINT</div>
+            <div class="kiosk-reprint-label">@L["PRESS ENTER FOR REPRINT"]</div>
         </div>
 
         <!-- SCALE ERROR (persistent) -->
         <div id="state-scale-error" class="kiosk-state">
-            <div class="big-message" style="color:#ff0000;">Scale Error</div>
-            <div style="font-size:1.8rem; color:#ff6666; margin-top:16px;">Check scale connection</div>
+            <div class="big-message" style="color:#ff0000;">@L["Scale Error"]</div>
+            <div style="font-size:1.8rem; color:#ff6666; margin-top:16px;">@L["Check scale connection"]</div>
         </div>
     </div>
 
     <!-- FULLSCREEN OVERLAYS -->
     <div id="overlay-motion-timeout" class="overlay-screen overlay-yellow">
-        <div class="overlay-message">Operation Cancelled</div>
-        <div class="overlay-sub">Motion did not stop in time</div>
+        <div class="overlay-message">@L["Operation Cancelled"]</div>
+        <div class="overlay-sub">@L["Motion did not stop in time"]</div>
     </div>
     <div id="overlay-error-cancel" class="overlay-screen overlay-red">
-        <div class="overlay-message">Operation Cancelled</div>
-        <div class="overlay-sub">Scale Error</div>
+        <div class="overlay-message">@L["Operation Cancelled"]</div>
+        <div class="overlay-sub">@L["Scale Error"]</div>
     </div>
     <div id="overlay-server-error" class="overlay-screen overlay-red">
-        <div class="overlay-message">Save Failed</div>
-        <div class="overlay-sub" id="server-error-detail">Server error. Please try again.</div>
+        <div class="overlay-message">@L["Save Failed"]</div>
+        <div class="overlay-sub" id="server-error-detail">@L["Server error. Please try again."]</div>
     </div>
     <div id="overlay-ticket-not-found" class="overlay-screen overlay-red">
-        <div class="overlay-message">Ticket Not Found</div>
-        <div class="overlay-sub">Please try again</div>
+        <div class="overlay-message">@L["Ticket Not Found"]</div>
+        <div class="overlay-sub">@L["Please try again"]</div>
     </div>
     <div id="overlay-ticket-completed" class="overlay-screen overlay-yellow">
-        <div class="overlay-message">Ticket Already Completed</div>
-        <div class="overlay-sub">This ticket has already been weighed out</div>
+        <div class="overlay-message">@L["Ticket Already Completed"]</div>
+        <div class="overlay-sub">@L["This ticket has already been weighed out"]</div>
     </div>
     <div id="overlay-ticket-voided" class="overlay-screen overlay-red">
-        <div class="overlay-message">Ticket Voided</div>
-        <div class="overlay-sub">This ticket has been voided</div>
+        <div class="overlay-message">@L["Ticket Voided"]</div>
+        <div class="overlay-sub">@L["This ticket has been voided"]</div>
     </div>
     <div id="overlay-no-trucks-for-carrier" class="overlay-screen overlay-red">
-        <div class="overlay-message">No Trucks Assigned</div>
-        <div class="overlay-sub" id="no-trucks-detail">No trucks are assigned to this carrier — see the office</div>
+        <div class="overlay-message">@L["No Trucks Assigned"]</div>
+        <div class="overlay-sub" id="no-trucks-detail">@L["No trucks are assigned to this carrier — see the office"]</div>
     </div>
     <div id="overlay-operation-timeout" class="overlay-screen overlay-yellow">
-        <div class="overlay-message">Operation Timed Out</div>
-        <div class="overlay-sub">Please try again</div>
+        <div class="overlay-message">@L["Operation Timed Out"]</div>
+        <div class="overlay-sub">@L["Please try again"]</div>
     </div>
     <div id="overlay-weight-changed" class="overlay-screen overlay-yellow">
-        <div class="overlay-message">Operation Cancelled</div>
-        <div class="overlay-sub">Weight changed during operation</div>
+        <div class="overlay-message">@L["Operation Cancelled"]</div>
+        <div class="overlay-sub">@L["Weight changed during operation"]</div>
     </div>
     <!-- Card presentation feedback: unknown card, inactive card, truck not on
          the scale yet. Text is filled in per read. -->
     <div id="overlay-card-message" class="overlay-screen overlay-yellow">
-        <div class="overlay-message" id="card-message">Card</div>
+        <div class="overlay-message" id="card-message">@L["Card"]</div>
         <div class="overlay-sub" id="card-message-sub"></div>
     </div>
 </div>
@@ -1169,12 +1202,13 @@
         if (scaleData.error) return;
 
         if (scaleData.weight < WEIGHT_THRESHOLD) {
-            showCardOverlay('Place Truck on Scale', 'Then present your card again');
+            showCardOverlay(T('Place Truck on Scale'), T('Then present your card again'));
             return;
         }
 
         setState('checking-ticket');
-        $('#state-checking-ticket .waiting-message').html('Reading Card<span class="waiting-dots"></span>');
+        $('#state-checking-ticket .waiting-message')
+            .html(escHtml(T('Reading Card')) + '<span class="waiting-dots"></span>');
 
         $.ajax({
             url: '/api/kiosk/card',
@@ -1183,19 +1217,21 @@
             data: JSON.stringify({ cardNumber: cardNumber, scaleId: kioskScaleDbId }),
             success: function (result) {
                 if (!result || !result.ok) {
-                    showCardOverlay((result && result.message) || 'Card Not Recognized', '');
+                    // result.message already arrives translated from the server.
+                    showCardOverlay((result && result.message) || T('Card Not Recognized'), '');
                     return;
                 }
                 startCardFlow(cardNumber, result);
             },
             error: function (xhr) {
-                var msg = 'Card lookup failed';
+                var msg = T('Card lookup failed');
                 try { var body = JSON.parse(xhr.responseText); if (body.message) msg = body.message; } catch (e) {}
-                showCardOverlay(msg, 'Please try again');
+                showCardOverlay(msg, T('Please try again'));
             },
             complete: function () {
                 // Restore the shared "Checking Ticket" wording for the keyed flow.
-                $('#state-checking-ticket .waiting-message').html('Checking Ticket<span class="waiting-dots"></span>');
+                $('#state-checking-ticket .waiting-message')
+                    .html(escHtml(T('Checking Ticket')) + '<span class="waiting-dots"></span>');
             }
         });
     }
@@ -1276,14 +1312,18 @@
             'background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;">' +
             '<div style="background:#fff;border-radius:12px;padding:40px;max-width:600px;text-align:center;">' +
             '<div style="font-size:48px;margin-bottom:16px;">&#9888;</div>' +
-            '<h2 style="margin-bottom:12px;color:#dc3545;">No Printer Configured</h2>' +
-            '<p style="font-size:16px;color:#333;margin-bottom:16px;">This kiosk does not have a printer assigned. Tickets will <strong>not</strong> be printed.</p>' +
-            '<p style="font-size:14px;color:#666;margin-bottom:24px;">To configure printing, add printer parameters to the kiosk URL:</p>' +
+            '<h2 style="margin-bottom:12px;color:#dc3545;">' + escHtml(T('No Printer Configured')) + '</h2>' +
+            // {0}/{1} are the <strong> tags around "not" — kept out of the
+            // catalog so a translator moves the emphasis with the word.
+            '<p style="font-size:16px;color:#333;margin-bottom:16px;">' +
+            TF('This kiosk does not have a printer assigned. Tickets will {0}not{1} be printed.', '<strong>', '</strong>') + '</p>' +
+            '<p style="font-size:14px;color:#666;margin-bottom:24px;">' + escHtml(T('To configure printing, add printer parameters to the kiosk URL:')) + '</p>' +
             '<code style="display:block;background:#f0f0f0;padding:10px;border-radius:6px;font-size:13px;margin-bottom:24px;word-break:break-all;">' +
             window.location.origin + '/Kiosk?service-id=<em>your-service</em>&amp;printer-id=<em>your-printer</em></code>' +
-            '<p style="font-size:13px;color:#666;margin-bottom:24px;">Use <code>service-id=Browser&amp;printer-id=Browser</code> to print via browser.</p>' +
+            '<p style="font-size:13px;color:#666;margin-bottom:24px;">' +
+            TF('Use {0} to print via browser.', '<code>service-id=Browser&amp;printer-id=Browser</code>') + '</p>' +
             '<button onclick="document.getElementById(\'noPrinterWarning\').remove();" ' +
-            'style="padding:12px 40px;font-size:18px;background:#0d6efd;color:#fff;border:none;border-radius:8px;cursor:pointer;">OK</button>' +
+            'style="padding:12px 40px;font-size:18px;background:#0d6efd;color:#fff;border:none;border-radius:8px;cursor:pointer;">' + escHtml(T('OK')) + '</button>' +
             '</div></div>';
         $('body').append(warningHtml);
     }
@@ -1296,12 +1336,12 @@
             $weightDisplay.removeClass('weight-ok weight-motion').addClass('weight-error');
             // Use CSS classes (not inline color) so light/dark themes can theme
             // the status text per-state — yellow on yellow was unreadable.
-            $scaleStatus.removeClass('status-motion').addClass('status-error').text('ERROR');
+            $scaleStatus.removeClass('status-motion').addClass('status-error').text(T('ERROR'));
         } else if (scaleData.motion) {
             $weightValue.text(scaleData.weight.toLocaleString());
             $weightUnit.text(' lb');
             $weightDisplay.removeClass('weight-ok weight-error').addClass('weight-motion');
-            $scaleStatus.removeClass('status-error').addClass('status-motion').text('MOTION');
+            $scaleStatus.removeClass('status-error').addClass('status-motion').text(T('MOTION'));
         } else {
             $weightValue.text(scaleData.weight.toLocaleString());
             $weightUnit.text(' lb');
@@ -1505,38 +1545,38 @@
         var inbound = direction === 'inbound';
         var prompts = [];
         if (kioskSettings.promptCarrier) {
-            prompts.push({ key: 'carrier', title: 'Select Carrier',
+            prompts.push({ key: 'carrier', title: T('Select Carrier'),
                            items: lists.carriers,
                            allowSkip: kioskSettings.allowSkipCarrier });
         }
         if (kioskSettings.promptCarrier && kioskSettings.promptTruckId) {
-            prompts.push({ key: 'truck', title: 'Select Truck',
+            prompts.push({ key: 'truck', title: T('Select Truck'),
                            items: [], loadFrom: 'carrier',
                            allowSkip: kioskSettings.allowSkipTruckId });
         }
         if (inbound ? kioskSettings.promptCommodityOnInbound : kioskSettings.promptCommodityOnOutbound) {
-            prompts.push({ key: 'commodity', title: 'Select Commodity',
+            prompts.push({ key: 'commodity', title: T('Select Commodity'),
                            items: lists.commodities,
                            allowSkip: kioskSettings.allowSkipCommodity });
         }
         if (inbound ? kioskSettings.promptCustomerOnInbound : kioskSettings.promptCustomerOnOutbound) {
-            prompts.push({ key: 'customer', title: 'Select Customer',
+            prompts.push({ key: 'customer', title: T('Select Customer'),
                            items: lists.customers,
                            allowSkip: kioskSettings.allowSkipCustomer });
         }
         if (inbound ? kioskSettings.promptLocationOnInbound : kioskSettings.promptLocationOnOutbound) {
-            prompts.push({ key: 'location', title: 'Select Location',
+            prompts.push({ key: 'location', title: T('Select Location'),
                            items: lists.locations,
                            allowSkip: kioskSettings.allowSkipLocation });
         }
         if (inbound ? kioskSettings.promptDestinationOnInbound : kioskSettings.promptDestinationOnOutbound) {
-            prompts.push({ key: 'destination', title: 'Select Destination',
+            prompts.push({ key: 'destination', title: T('Select Destination'),
                            items: lists.destinations,
                            allowSkip: kioskSettings.allowSkipDestination });
         }
         if (kioskSettings.useBinInventory
             && (inbound ? kioskSettings.promptBinOnInbound : kioskSettings.promptBinOnOutbound)) {
-            prompts.push({ key: 'bin', title: 'Select Bin',
+            prompts.push({ key: 'bin', title: T('Select Bin'),
                            items: lists.bins || [],
                            allowSkip: kioskSettings.allowSkipBin });
         }
@@ -1550,7 +1590,7 @@
                     // items are resolved at render time from the answer the
                     // driver already gave for the parent prompt.
                     prompts.push({ key: 'cf' + f.id, cfId: f.id,
-                                   title: 'Select ' + f.name,
+                                   title: TF('Select {0}', f.name),
                                    items: f.listValues || [],
                                    allItems: f.listValues || [],
                                    parentKey: cascadeParentKey(f.parentField),
@@ -1558,7 +1598,7 @@
                                    allowSkip: !f.required });
                 } else {
                     prompts.push({ key: 'cf' + f.id, cfId: f.id,
-                                   title: 'Enter ' + f.name,
+                                   title: TF('Enter {0}', f.name),
                                    type: 'number',
                                    integer: f.fieldType === 'Integer',
                                    min: f.minValue, max: f.maxValue,
@@ -1590,7 +1630,7 @@
                 // always actually ask for it.
                 if (trucks.length === 0) {
                     $('#no-trucks-detail').text(
-                        'No trucks are assigned to "' + weighinData.carrier + '" — see the office'
+                        TF('No trucks are assigned to "{0}" — see the office', weighinData.carrier)
                     );
                     clearOperationTracking();
                     activeFlow = null;
@@ -1661,7 +1701,7 @@
         var $list = $('#prompt-list').empty().scrollTop(0);
 
         currentListItems.forEach(function (item, i) {
-            var label = (item === '' || item == null) ? '— None —' : item;
+            var label = (item === '' || item == null) ? T('— None —') : item;
             var $item = $('<div class="list-item"></div>').text(label).attr('data-index', i);
             if (item === '' || item == null) $item.addClass('list-item-none');
             if (i === 0) $item.addClass('selected');
@@ -1769,10 +1809,12 @@
     function updateNumberReadout(prompt) {
         $('#prompt-number-value').text(numberValue === '' ? ' ' : numberValue);
         var hints = [];
-        if (prompt.integer) hints.push('whole number');
-        if (prompt.min != null) hints.push('min ' + prompt.min);
-        if (prompt.max != null) hints.push('max ' + prompt.max);
-        if (!prompt.integer && prompt.precision != null) hints.push('up to ' + prompt.precision + ' decimal' + (prompt.precision === 1 ? '' : 's'));
+        if (prompt.integer) hints.push(T('whole number'));
+        if (prompt.min != null) hints.push(TF('min {0}', prompt.min));
+        if (prompt.max != null) hints.push(TF('max {0}', prompt.max));
+        if (!prompt.integer && prompt.precision != null) {
+            hints.push(TF(prompt.precision === 1 ? 'up to {0} decimal' : 'up to {0} decimals', prompt.precision));
+        }
         $('#prompt-number-hint').removeClass('number-hint-error').text(hints.join(' · '));
     }
 
@@ -1804,18 +1846,19 @@
     function confirmNumberPrompt(prompt) {
         if (numberValue === '' || numberValue === '0.') {
             if (prompt.allowSkip !== false) { promptIndex++; showNextPrompt(); }
-            else showNumberError(prompt, 'A value is required');
+            else showNumberError(prompt, T('A value is required'));
             return;
         }
         var v = parseFloat(numberValue);
-        if (isNaN(v)) { showNumberError(prompt, 'Not a valid number'); return; }
-        if (prompt.min != null && v < prompt.min) { showNumberError(prompt, 'Minimum is ' + prompt.min); return; }
-        if (prompt.max != null && v > prompt.max) { showNumberError(prompt, 'Maximum is ' + prompt.max); return; }
+        if (isNaN(v)) { showNumberError(prompt, T('Not a valid number')); return; }
+        if (prompt.min != null && v < prompt.min) { showNumberError(prompt, TF('Minimum is {0}', prompt.min)); return; }
+        if (prompt.max != null && v > prompt.max) { showNumberError(prompt, TF('Maximum is {0}', prompt.max)); return; }
         if (!prompt.integer && prompt.precision != null) {
             var dot = numberValue.indexOf('.');
             var dec = dot < 0 ? 0 : numberValue.length - dot - 1;
             if (dec > prompt.precision) {
-                showNumberError(prompt, 'Up to ' + prompt.precision + ' decimal place' + (prompt.precision === 1 ? '' : 's'));
+                showNumberError(prompt, TF(prompt.precision === 1
+                    ? 'Up to {0} decimal place' : 'Up to {0} decimal places', prompt.precision));
                 return;
             }
         }
@@ -1891,10 +1934,12 @@
     // is weighed and the ticket stored. Flows with no questions (e.g. a
     // ticket-number weigh-out with no outbound prompts) skip straight to
     // the weighment like before.
+    // Keys are stable; the labels follow the page language. Built once at
+    // load — the page reloads on a language switch, so it never goes stale.
     var STANDARD_PROMPT_LABELS = {
-        carrier: 'Carrier', truck: 'Truck ID', commodity: 'Commodity',
-        customer: 'Customer', location: 'Location', destination: 'Destination',
-        bin: 'Bin'
+        carrier: T('Carrier'), truck: T('Truck ID'), commodity: T('Commodity'),
+        customer: T('Customer'), location: T('Location'), destination: T('Destination'),
+        bin: T('Bin')
     };
 
     function promptLabelFor(key) {
@@ -1927,8 +1972,8 @@
         }
 
         $('#confirm-title').text(activeFlow === 'weighout'
-            ? 'Confirm Ticket' + (weighoutTicket ? ' #' + weighoutTicket.ticket : '')
-            : 'Confirm New Load');
+            ? (weighoutTicket ? TF('Confirm Ticket #{0}', weighoutTicket.ticket) : T('Confirm Ticket'))
+            : T('Confirm New Load'));
 
         var $summary = $('#confirm-summary').empty().scrollTop(0);
         keys.forEach(function (key) {
@@ -1936,7 +1981,7 @@
             var $row = $('<div class="confirm-row"></div>');
             $('<span class="confirm-label"></span>').text(promptLabelFor(key)).appendTo($row);
             if (value === undefined || value === null || value === '') {
-                $('<span class="confirm-value confirm-skipped"></span>').text('— skipped —').appendTo($row);
+                $('<span class="confirm-value confirm-skipped"></span>').text(T('— skipped —')).appendTo($row);
             } else {
                 $('<span class="confirm-value"></span>').text(value).appendTo($row);
             }
@@ -2070,7 +2115,7 @@
                 }
             },
             error: function (xhr) {
-                var msg = 'Server error (' + xhr.status + '). Please try again.';
+                var msg = TF('Server error ({0}). Please try again.', xhr.status);
                 try { var body = JSON.parse(xhr.responseText); if (body.message) msg = body.message; } catch(e) {}
                 $('#server-error-detail').text(msg);
                 showOverlay('overlay-server-error', OVERLAY_DURATION_MS * 2);
@@ -2112,7 +2157,7 @@
                 showComplete('Weigh Out', result.ticket, weighoutTicket.inWeight, weight);
             },
             error: function (xhr) {
-                var msg = 'Server error (' + xhr.status + '). Please try again.';
+                var msg = TF('Server error ({0}). Please try again.', xhr.status);
                 try { var body = JSON.parse(xhr.responseText); if (body.message) msg = body.message; } catch(e) {}
                 $('#server-error-detail').text(msg);
                 showOverlay('overlay-server-error', OVERLAY_DURATION_MS * 2);
@@ -2123,10 +2168,10 @@
     /// What the driver should do with the card now. Null on keyed-in tickets.
     function cardGuidance(result) {
         if (!result || !result.cardUsed) return null;
-        if (!result.cardClosed) return 'KEEP YOUR CARD — PRESENT IT AGAIN TO WEIGH OUT';
+        if (!result.cardClosed) return T('KEEP YOUR CARD — PRESENT IT AGAIN TO WEIGH OUT');
         return result.cardRecycled
-            ? 'KEEP YOUR CARD FOR YOUR NEXT LOAD'
-            : 'RETURN CARD TO THE LOADER OPERATOR';
+            ? T('KEEP YOUR CARD FOR YOUR NEXT LOAD')
+            : T('RETURN CARD TO THE LOADER OPERATOR');
     }
 
     function showComplete(type, ticketNum, inWeight, outWeight, tareInfo) {
@@ -2148,18 +2193,18 @@
         // ticket open ("WEIGH IN COMPLETE" — the truck still has to come back),
         // both weights set means the ticket is closed ("WEIGH OUT COMPLETE",
         // including the retained-tare auto-completion path).
-        var headerText = (outWeight !== null) ? 'WEIGH OUT COMPLETE' : 'WEIGH IN COMPLETE';
+        var headerText = (outWeight !== null) ? T('WEIGH OUT COMPLETE') : T('WEIGH IN COMPLETE');
         $('#complete-header').text(headerText);
 
-        var info = 'Ticket #' + ticketNum;
+        var info = TF('Ticket #{0}', ticketNum);
         if (outWeight !== null) {
             var gross = Math.max(inWeight, outWeight);
             var tare = Math.min(inWeight, outWeight);
             var net = Math.abs(inWeight - outWeight);
-            info += ' — Net: ' + net.toLocaleString() + ' lb';
-            if (tareInfo) info += ' — Tare recalled';
+            info = TF('{0} — Net: {1} lb', info, net.toLocaleString());
+            if (tareInfo) info += ' — ' + T('Tare recalled');
         } else {
-            info += ' — ' + inWeight.toLocaleString() + ' lb';
+            info = TF('{0} — {1} lb', info, inWeight.toLocaleString());
         }
         $('#complete-info').text(info);
 
@@ -2258,34 +2303,41 @@
         if (tareInfo && tareInfo.retainedTare !== null && typeof tareInfo.retainedTare !== 'undefined') {
             var when = '';
             if (tareInfo.retainedTareUpdated) {
-                try { when = ' (last seen ' + new Date(tareInfo.retainedTareUpdated).toLocaleDateString() + ')'; }
+                try { when = TF(' (last seen {0})', new Date(tareInfo.retainedTareUpdated).toLocaleDateString(LANG)); }
                 catch (e) { /* ignore */ }
             }
             html += '<div class="dt-row" style="background:#fff3cd;border:1px solid #ffeeba;border-radius:6px;padding:6px 10px;margin:4px 0;font-weight:bold;">'
-                  + '<span class="dt-label">TARE RECALLED:</span>'
+                  + '<span class="dt-label">' + escHtml(T('TARE RECALLED:')) + '</span>'
                   + '<span>' + tareInfo.retainedTare.toLocaleString() + ' lb' + escHtml(when) + '</span>'
                   + '</div>';
         }
-        html += '<div class="dt-row"><span class="dt-label">Ticket #:</span><span>' + escHtml(ticketNum) + '</span></div>';
-        html += '<div class="dt-row"><span class="dt-label">Type:</span><span>' + type + '</span></div>';
+        // Labels follow the page language; the values are the customer's own
+        // master data and print exactly as the office entered them.
+        function dtRow(label, value, style) {
+            return '<div class="dt-row"' + (style ? ' style="' + style + '"' : '') + '>'
+                 + '<span class="dt-label">' + escHtml(T(label)) + '</span>'
+                 + '<span>' + value + '</span></div>';
+        }
+        html += dtRow('Ticket #:', escHtml(ticketNum));
+        html += dtRow('Type:', escHtml(T(type)));
 
-        if (weighinData.commodity) html += '<div class="dt-row"><span class="dt-label">Commodity:</span><span>' + escHtml(weighinData.commodity) + '</span></div>';
-        if (weighinData.customer) html += '<div class="dt-row"><span class="dt-label">Customer:</span><span>' + escHtml(weighinData.customer) + '</span></div>';
-        if (weighinData.carrier) html += '<div class="dt-row"><span class="dt-label">Carrier:</span><span>' + escHtml(weighinData.carrier) + '</span></div>';
-        if (weighinData.truck) html += '<div class="dt-row"><span class="dt-label">Truck ID:</span><span>' + escHtml(weighinData.truck) + '</span></div>';
-        if (weighinData.destination) html += '<div class="dt-row"><span class="dt-label">Destination:</span><span>' + escHtml(weighinData.destination) + '</span></div>';
-        if (weighinData.bin) html += '<div class="dt-row"><span class="dt-label">Bin:</span><span>' + escHtml(weighinData.bin) + '</span></div>';
+        if (weighinData.commodity) html += dtRow('Commodity:', escHtml(weighinData.commodity));
+        if (weighinData.customer) html += dtRow('Customer:', escHtml(weighinData.customer));
+        if (weighinData.carrier) html += dtRow('Carrier:', escHtml(weighinData.carrier));
+        if (weighinData.truck) html += dtRow('Truck ID:', escHtml(weighinData.truck));
+        if (weighinData.destination) html += dtRow('Destination:', escHtml(weighinData.destination));
+        if (weighinData.bin) html += dtRow('Bin:', escHtml(weighinData.bin));
 
         html += '<div class="dt-weights">';
         if (outWeight !== null) {
             var gross = Math.max(inWeight, outWeight);
             var tare = Math.min(inWeight, outWeight);
             var net = Math.abs(inWeight - outWeight);
-            html += '<div class="dt-row"><span class="dt-label">Gross:</span><span>' + gross.toLocaleString() + ' lb</span></div>';
-            html += '<div class="dt-row"><span class="dt-label">Tare:</span><span>' + tare.toLocaleString() + ' lb</span></div>';
-            html += '<div class="dt-row" style="font-weight:bold;font-size:1.1rem;"><span class="dt-label">Net:</span><span>' + net.toLocaleString() + ' lb</span></div>';
+            html += dtRow('Gross:', gross.toLocaleString() + ' lb');
+            html += dtRow('Tare:', tare.toLocaleString() + ' lb');
+            html += dtRow('Net:', net.toLocaleString() + ' lb', 'font-weight:bold;font-size:1.1rem;');
         } else {
-            html += '<div class="dt-row"><span class="dt-label">Weight:</span><span>' + inWeight.toLocaleString() + ' lb</span></div>';
+            html += dtRow('Weight:', inWeight.toLocaleString() + ' lb');
         }
         html += '</div></div>';
         $('#demo-ticket-area').html(html);
@@ -2327,12 +2379,14 @@
             },
             error: function (xhr) {
                 setTimeout(function () {
-                    var msg = '';
-                    try { msg = JSON.parse(xhr.responseText).message; } catch (e) {}
+                    // Match on the endpoint's stable reason code, not on the
+                    // message — the message is translated, the code is not.
+                    var reason = '';
+                    try { reason = JSON.parse(xhr.responseText).reason || ''; } catch (e) {}
                     var overlayId;
-                    if (msg === 'Ticket already completed') {
+                    if (reason === 'completed') {
                         overlayId = 'overlay-ticket-completed';
-                    } else if (msg === 'Ticket is voided') {
+                    } else if (reason === 'voided') {
                         overlayId = 'overlay-ticket-voided';
                     } else {
                         overlayId = 'overlay-ticket-not-found';

@@ -13,47 +13,47 @@
 </div>
 
 <div class="ticket-row">
-    <span class="label">Ticket #:</span>
+    <span class="label">@L["Ticket #:"]</span>
     <span>@Model.Ticket</span>
 </div>
 
 <div class="ticket-row">
-    <span class="label">Date In:</span>
+    <span class="label">@L["Date In:"]</span>
     <span>@Model.DateIn.ToString("MM/dd/yyyy hh:mm tt")</span>
 </div>
 
 @if (!isInbound && Model.DateOut.HasValue)
 {
     <div class="ticket-row">
-        <span class="label">Date Out:</span>
+        <span class="label">@L["Date Out:"]</span>
         <span>@Model.DateOut.Value.ToString("MM/dd/yyyy hh:mm tt")</span>
     </div>
 }
 
 <div class="ticket-row">
-    <span class="label">Customer:</span>
+    <span class="label">@L["Customer:"]</span>
     <span>@Model.Customer</span>
 </div>
 
 <div class="ticket-row">
-    <span class="label">Carrier:</span>
+    <span class="label">@L["Carrier:"]</span>
     <span>@Model.Carrier</span>
 </div>
 
 <div class="ticket-row">
-    <span class="label">Truck ID:</span>
+    <span class="label">@L["Truck ID:"]</span>
     <span>@Model.TruckId</span>
 </div>
 
 <div class="ticket-row">
-    <span class="label">Commodity:</span>
+    <span class="label">@L["Commodity:"]</span>
     <span>@Model.Commodity</span>
 </div>
 
 @if (!string.IsNullOrEmpty(Model.Location))
 {
     <div class="ticket-row">
-        <span class="label">Location:</span>
+        <span class="label">@L["Location:"]</span>
         <span>@Model.Location</span>
     </div>
 }
@@ -61,7 +61,7 @@
 @if (!string.IsNullOrEmpty(Model.Destination))
 {
     <div class="ticket-row">
-        <span class="label">Destination:</span>
+        <span class="label">@L["Destination:"]</span>
         <span>@Model.Destination</span>
     </div>
 }
@@ -69,7 +69,7 @@
 @if (!string.IsNullOrEmpty(Model.Bin))
 {
     <div class="ticket-row">
-        <span class="label">Bin:</span>
+        <span class="label">@L["Bin:"]</span>
         <span>@Model.Bin</span>
     </div>
 }
@@ -78,22 +78,22 @@
     @if (isInbound)
     {
         <div class="ticket-row" style="font-size:18px; font-weight:bold;">
-            <span class="label">Weight:</span>
+            <span class="label">@L["Weight:"]</span>
             <span>@Model.InWeight.ToString("#,##0") lb</span>
         </div>
     }
     else
     {
         <div class="ticket-row">
-            <span class="label">Gross Weight:</span>
+            <span class="label">@L["Gross Weight:"]</span>
             <span>@Model.GrossWeight.ToString("#,##0") lb</span>
         </div>
         <div class="ticket-row">
-            <span class="label">Tare Weight:</span>
+            <span class="label">@L["Tare Weight:"]</span>
             <span>@Model.TareWeight.ToString("#,##0") lb</span>
         </div>
         <div class="ticket-row net-weight">
-            <span class="label">Net Weight:</span>
+            <span class="label">@L["Net Weight:"]</span>
             <span>@Model.NetWeight.ToString("#,##0") lb</span>
         </div>
     }
@@ -102,7 +102,7 @@
 @if (!string.IsNullOrEmpty(Model.Notes))
 {
     <div class="ticket-row">
-        <span class="label">Notes:</span>
+        <span class="label">@L["Notes:"]</span>
         <span>@Model.Notes</span>
     </div>
 }

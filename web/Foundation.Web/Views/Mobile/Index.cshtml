@@ -3,7 +3,7 @@
     Layout = null;
 }
 <!DOCTYPE html>
-<html lang="en">
+<html lang="@L.Code">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
@@ -11,8 +11,10 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="theme-color" content="#111418" />
-    <title>@(Model.Header1 ?? "Foundation") - Weigh</title>
+    <title>@(Model.Header1 ?? "Foundation") - @L["Weigh"]</title>
     <link rel="icon" href="/api/setup/icon" />
+    @* T() / TF() for the runtime-built strings further down. *@
+    @await Html.PartialAsync("_LangJs")
     <style>
         /* ============================================================
            The whole page must fit one phone screen — the driver is
@@ -35,6 +37,26 @@
             --amber: #d9a406;
             --red: #d33a3a;
         }
+
+        /* Language toggle in the header, sized for a thumb. */
+        .lang-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 44px;
+            height: 34px;
+            padding: 0 10px;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            background: var(--panel-2);
+            color: var(--muted);
+            font-size: 0.85rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-decoration: none;
+            flex-shrink: 0;
+        }
+        .lang-btn:active { background: var(--line); color: var(--text); }
 
         html, body {
             height: 100%;
@@ -423,7 +445,8 @@
     <div id="hdr">
         <img src="/api/setup/icon" alt="" />
         <span class="co">@(Model.Header1 ?? "Foundation")</span>
-        <a class="hdr-btn" id="btn-dashboard" href="/" aria-label="Open the main dashboard" title="Main dashboard">
+        <a class="lang-btn" href="@L.SwitchUrl" title='@L.SwitchTitle'>@L.SwitchLabel</a>
+        <a class="hdr-btn" id="btn-dashboard" href="/" aria-label='@L["Open the main dashboard"]' title='@L["Main dashboard"]'>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
             </svg>
@@ -445,74 +468,74 @@
             <div class="spacer"></div>
             <div style="text-align:center;">
                 <div class="spin"></div>
-                <div style="color:var(--muted);font-size:0.9rem;">Connecting&hellip;</div>
+                <div style="color:var(--muted);font-size:0.9rem;">@L["Connecting…"]</div>
             </div>
             <div class="spacer"></div>
         </div>
 
         <!-- LOCATION / SCALE PICKER -->
         <div class="screen" id="scr-picker">
-            <div class="screen-title" id="picker-title">Choose Location</div>
+            <div class="screen-title" id="picker-title">@L["Choose Location"]</div>
             <div class="scroll" id="picker-list"></div>
-            <button class="btn btn-ghost" id="picker-back" style="margin-top:8px;display:none;">Back</button>
+            <button class="btn btn-ghost" id="picker-back" style="margin-top:8px;display:none;">@L["Back"]</button>
         </div>
 
         <!-- HOME: nothing weighed in -->
         <div class="screen" id="scr-home">
             <div class="spacer"></div>
-            <div class="screen-sub" id="home-hint">Pull onto the scale, then tap Weigh In.</div>
-            <button class="btn btn-green btn-hero" id="btn-weighin">WEIGH IN</button>
+            <div class="screen-sub" id="home-hint">@L["Pull onto the scale, then tap Weigh In."]</div>
+            <button class="btn btn-green btn-hero" id="btn-weighin">@L["WEIGH IN"]</button>
             <div class="spacer"></div>
         </div>
 
         <!-- OPEN TICKET: weighed in, waiting to weigh out -->
         <div class="screen" id="scr-open">
             <div class="tk-badge">
-                <div class="tk-lbl">Ticket</div>
+                <div class="tk-lbl">@L["Ticket"]</div>
                 <div class="tk-no" id="open-ticket">—</div>
             </div>
             <div class="scroll" id="open-details"></div>
             <div class="screen-sub" id="open-hint" style="margin:8px 0 0;"></div>
-            <button class="btn btn-green btn-hero" id="btn-weighout" style="margin-top:8px;">WEIGH OUT</button>
-            <button class="btn btn-ghost" id="btn-reset">Reset — cancel this weigh-in</button>
+            <button class="btn btn-green btn-hero" id="btn-weighout" style="margin-top:8px;">@L["WEIGH OUT"]</button>
+            <button class="btn btn-ghost" id="btn-reset">@L["Reset — cancel this weigh-in"]</button>
         </div>
 
         <!-- PROMPT: list -->
         <div class="screen" id="scr-prompt">
-            <div class="screen-title" id="prompt-title">Select</div>
+            <div class="screen-title" id="prompt-title">@L["Select"]</div>
             <div class="scroll" id="prompt-list"></div>
             <div class="btn-row" style="margin-top:8px;">
-                <button class="btn btn-ghost" id="prompt-cancel">Cancel</button>
-                <button class="btn btn-ghost" id="prompt-skip" style="display:none;">Skip</button>
+                <button class="btn btn-ghost" id="prompt-cancel">@L["Cancel"]</button>
+                <button class="btn btn-ghost" id="prompt-skip" style="display:none;">@L["Skip"]</button>
             </div>
         </div>
 
         <!-- PROMPT: number keypad -->
         <div class="screen" id="scr-number">
-            <div class="screen-title" id="num-title">Enter</div>
+            <div class="screen-title" id="num-title">@L["Enter"]</div>
             <div id="num-readout">0</div>
             <div id="num-error">&nbsp;</div>
             <div id="num-pad"></div>
             <div class="btn-row">
-                <button class="btn btn-ghost" id="num-cancel">Cancel</button>
-                <button class="btn btn-green" id="num-done">Done</button>
+                <button class="btn btn-ghost" id="num-cancel">@L["Cancel"]</button>
+                <button class="btn btn-green" id="num-done">@L["Done"]</button>
             </div>
         </div>
 
         <!-- CONFIRM -->
         <div class="screen" id="scr-confirm">
-            <div class="screen-title" id="confirm-title">Confirm</div>
+            <div class="screen-title" id="confirm-title">@L["Confirm"]</div>
             <!-- Weigh-out only: what the load comes to, before it is committed. -->
             <div class="tk-grid two" id="confirm-weights" style="display:none;">
-                <div class="tk-cell"><div class="v" id="confirm-in">0</div><div class="k">Weighed In</div></div>
-                <div class="tk-cell net"><div class="v" id="confirm-net">0</div><div class="k">Net</div></div>
+                <div class="tk-cell"><div class="v" id="confirm-in">0</div><div class="k">@L["Weighed In"]</div></div>
+                <div class="tk-cell net"><div class="v" id="confirm-net">0</div><div class="k">@L["Net"]</div></div>
             </div>
             <div class="scroll" id="confirm-list"></div>
             <div id="confirm-blocked"></div>
-            <button class="btn btn-green" id="confirm-go" style="margin-top:8px;">Confirm &amp; Weigh</button>
+            <button class="btn btn-green" id="confirm-go" style="margin-top:8px;">@L["Confirm & Weigh"]</button>
             <div class="btn-row" style="margin-top:8px;">
-                <button class="btn btn-ghost" id="confirm-cancel">Cancel</button>
-                <button class="btn btn-ghost" id="confirm-editall">Change All</button>
+                <button class="btn btn-ghost" id="confirm-cancel">@L["Cancel"]</button>
+                <button class="btn btn-ghost" id="confirm-editall">@L["Change All"]</button>
             </div>
         </div>
 
@@ -521,7 +544,7 @@
             <div class="spacer"></div>
             <div style="text-align:center;">
                 <div class="spin"></div>
-                <div id="busy-text" style="color:var(--muted);font-size:1rem;">Saving&hellip;</div>
+                <div id="busy-text" style="color:var(--muted);font-size:1rem;">@L["Saving…"]</div>
             </div>
             <div class="spacer"></div>
         </div>
@@ -529,17 +552,17 @@
         <!-- DONE: load closed, offer the PDF -->
         <div class="screen" id="scr-done">
             <div class="tk-badge">
-                <div class="tk-lbl">Completed Ticket</div>
+                <div class="tk-lbl">@L["Completed Ticket"]</div>
                 <div class="tk-no" id="done-ticket">—</div>
             </div>
             <div class="tk-grid">
-                <div class="tk-cell"><div class="v" id="done-gross">0</div><div class="k">Gross</div></div>
-                <div class="tk-cell"><div class="v" id="done-tare">0</div><div class="k">Tare</div></div>
-                <div class="tk-cell net"><div class="v" id="done-net">0</div><div class="k">Net</div></div>
+                <div class="tk-cell"><div class="v" id="done-gross">0</div><div class="k">@L["Gross"]</div></div>
+                <div class="tk-cell"><div class="v" id="done-tare">0</div><div class="k">@L["Tare"]</div></div>
+                <div class="tk-cell net"><div class="v" id="done-net">0</div><div class="k">@L["Net"]</div></div>
             </div>
             <div class="scroll" id="done-details"></div>
-            <button class="btn" id="btn-pdf" style="margin-top:8px;">Save Ticket as PDF</button>
-            <button class="btn btn-ghost" id="btn-done">Done</button>
+            <button class="btn" id="btn-pdf" style="margin-top:8px;">@L["Save Ticket as PDF"]</button>
+            <button class="btn btn-ghost" id="btn-done">@L["Done"]</button>
         </div>
 
     </div>
@@ -557,10 +580,10 @@
 
 <div id="modal">
     <div class="box">
-        <h3 id="modal-title">Are you sure?</h3>
+        <h3 id="modal-title">@L["Are you sure?"]</h3>
         <p id="modal-text"></p>
-        <button class="btn btn-red" id="modal-ok">Yes</button>
-        <button class="btn btn-ghost" id="modal-cancel">No</button>
+        <button class="btn btn-red" id="modal-ok">@L["Yes"]</button>
+        <button class="btn btn-ghost" id="modal-cancel">@L["No"]</button>
     </div>
 </div>
 
@@ -634,10 +657,12 @@
     var openTicketTare = null; // stored tare for the open ticket's truck, if any
     var ticketCustomValues = {}; // custom-field values already on the open ticket
 
+    // Keys are stable; the labels follow the page language. Built once at
+    // load — the page reloads on a language switch, so it never goes stale.
     var STD_LABELS = {
-        carrier: 'Carrier', truck: 'Truck ID', commodity: 'Commodity',
-        customer: 'Customer', location: 'Location', destination: 'Destination',
-        bin: 'Bin'
+        carrier: T('Carrier'), truck: T('Truck ID'), commodity: T('Commodity'),
+        customer: T('Customer'), location: T('Location'), destination: T('Destination'),
+        bin: T('Bin')
     };
 
     // ===== COOKIES =====
@@ -692,7 +717,7 @@
         $('#modal-title').text(o.title);
         $('#modal-text').text(o.text);
         $('#modal-ok').text(o.okLabel).attr('class', 'btn ' + (o.okClass || 'btn-red'));
-        $('#modal-cancel').text(o.cancelLabel || 'Cancel');
+        $('#modal-cancel').text(o.cancelLabel || T('Cancel'));
         $('#modal').addClass('show');
         $('#modal-ok').off('click').on('click', function () {
             $('#modal').removeClass('show');
@@ -705,7 +730,7 @@
     }
 
     function confirmModal(title, text, okLabel, onOk) {
-        showModal({ title: title, text: text, okLabel: okLabel, cancelLabel: 'No', onOk: onOk });
+        showModal({ title: title, text: text, okLabel: okLabel, cancelLabel: T('No'), onOk: onOk });
     }
 
     // ===== WEIGHT =====
@@ -714,12 +739,12 @@
         if (scaleData.error) {
             $('#weight-value').text('——');
             $('#weight-unit').text('');
-            $('#weight-status').text('SCALE ERROR');
+            $('#weight-status').text(T('SCALE ERROR'));
             $bar.addClass('w-error');
         } else if (scaleData.motion) {
             $('#weight-value').text(scaleData.weight.toLocaleString());
             $('#weight-unit').text(' lb');
-            $('#weight-status').text('IN MOTION');
+            $('#weight-status').text(T('IN MOTION'));
             $bar.addClass('w-motion');
         } else {
             $('#weight-value').text(scaleData.weight.toLocaleString());
@@ -758,16 +783,16 @@
         $('#btn-weighin').prop('disabled', !ready);
         $('#btn-weighout').prop('disabled', !ready && !canCloseOnTare);
         $('#home-hint').text(scaleData.error
-            ? 'Scale is not reporting — see the office.'
-            : (ready ? 'Ready. Tap Weigh In to start your load.'
-                     : 'Pull onto the scale, then tap Weigh In.'));
+            ? T('Scale is not reporting — see the office.')
+            : (ready ? T('Ready. Tap Weigh In to start your load.')
+                     : T('Pull onto the scale, then tap Weigh In.')));
         if (openTicket) {
             $('#open-hint').text(scaleData.error && !canCloseOnTare
-                ? 'Scale is not reporting — see the office.'
-                : (ready ? 'Ready. Tap Weigh Out to close this load.'
+                ? T('Scale is not reporting — see the office.')
+                : (ready ? T('Ready. Tap Weigh Out to close this load.')
                          : (canCloseOnTare
-                            ? 'Pull back onto the scale, or close on this truck’s stored tare.'
-                            : 'Pull back onto the scale when your load is done.')));
+                            ? T('Pull back onto the scale, or close on this truck’s stored tare.')
+                            : T('Pull back onto the scale when your load is done.'))));
         }
     }
 
@@ -799,7 +824,7 @@
                     // Single location, single scale — nothing to ask.
                     var only = sites[0];
                     if (!only || !only.scales.length) {
-                        banner('No scale is configured — see the office.', 'err');
+                        banner(T('No scale is configured — see the office.'), 'err');
                         show('home');
                         return;
                     }
@@ -813,7 +838,7 @@
                 }
             })
             .fail(function () {
-                banner('Cannot reach the scale system.', 'err');
+                banner(T('Cannot reach the scale system.'), 'err');
                 show('home');
             });
     }
@@ -847,11 +872,11 @@
     function showSitePicker() {
         // A single location with several scales skips straight to the scales.
         if (sites.length === 1) { showScalePicker(sites[0]); return; }
-        $('#picker-title').text('Choose Location');
+        $('#picker-title').text(T('Choose Location'));
         $('#picker-back').hide();
         var $l = $('#picker-list').empty();
         sites.forEach(function (site) {
-            $('<div class="list-item" role="button" tabindex="0"></div>').text(site.name || 'Scales')
+            $('<div class="list-item" role="button" tabindex="0"></div>').text(site.name || T('Scales'))
                 .on('click', function () { showScalePicker(site); })
                 .appendTo($l);
         });
@@ -864,7 +889,7 @@
             afterScaleChosen();
             return;
         }
-        $('#picker-title').text(site.name ? 'Scale at ' + site.name : 'Choose Scale');
+        $('#picker-title').text(site.name ? TF('Scale at {0}', site.name) : T('Choose Scale'));
         $('#picker-back').toggle(sites.length > 1).off('click').on('click', showSitePicker);
         var $l = $('#picker-list').empty();
         site.scales.forEach(function (sc) {
@@ -912,8 +937,10 @@
 
     function tareLine() {
         if (!tareOffer) return '';
-        var when = tareOffer.updated ? new Date(tareOffer.updated).toLocaleDateString() : '';
-        return tareOffer.tare.toLocaleString() + ' lb' + (when ? ' (from ' + when + ')' : '');
+        var when = tareOffer.updated ? new Date(tareOffer.updated).toLocaleDateString(LANG) : '';
+        return when
+            ? TF('{0} lb (from {1})', tareOffer.tare.toLocaleString(), when)
+            : tareOffer.tare.toLocaleString() + ' lb';
     }
 
     // ===== PROMPT QUEUE =====
@@ -929,37 +956,37 @@
         var inbound = direction === 'inbound';
         var p = [];
         if (cfg.promptCarrier) {
-            p.push({ key: 'carrier', title: 'Select Carrier', items: lists.carriers, allowSkip: cfg.allowSkipCarrier });
+            p.push({ key: 'carrier', title: T('Select Carrier'), items: lists.carriers, allowSkip: cfg.allowSkipCarrier });
         }
         if (cfg.promptCarrier && cfg.promptTruckId) {
-            p.push({ key: 'truck', title: 'Select Truck', items: [], loadFrom: 'carrier', allowSkip: cfg.allowSkipTruckId });
+            p.push({ key: 'truck', title: T('Select Truck'), items: [], loadFrom: 'carrier', allowSkip: cfg.allowSkipTruckId });
         }
         if (inbound ? cfg.promptCommodityOnInbound : cfg.promptCommodityOnOutbound) {
-            p.push({ key: 'commodity', title: 'Select Commodity', items: lists.commodities, allowSkip: cfg.allowSkipCommodity });
+            p.push({ key: 'commodity', title: T('Select Commodity'), items: lists.commodities, allowSkip: cfg.allowSkipCommodity });
         }
         if (inbound ? cfg.promptCustomerOnInbound : cfg.promptCustomerOnOutbound) {
-            p.push({ key: 'customer', title: 'Select Customer', items: lists.customers, allowSkip: cfg.allowSkipCustomer });
+            p.push({ key: 'customer', title: T('Select Customer'), items: lists.customers, allowSkip: cfg.allowSkipCustomer });
         }
         if (inbound ? cfg.promptLocationOnInbound : cfg.promptLocationOnOutbound) {
-            p.push({ key: 'location', title: 'Select Location', items: lists.locations, allowSkip: cfg.allowSkipLocation });
+            p.push({ key: 'location', title: T('Select Location'), items: lists.locations, allowSkip: cfg.allowSkipLocation });
         }
         if (inbound ? cfg.promptDestinationOnInbound : cfg.promptDestinationOnOutbound) {
-            p.push({ key: 'destination', title: 'Select Destination', items: lists.destinations, allowSkip: cfg.allowSkipDestination });
+            p.push({ key: 'destination', title: T('Select Destination'), items: lists.destinations, allowSkip: cfg.allowSkipDestination });
         }
         if (cfg.useBinInventory && (inbound ? cfg.promptBinOnInbound : cfg.promptBinOnOutbound)) {
-            p.push({ key: 'bin', title: 'Select Bin', items: lists.bins || [], allowSkip: cfg.allowSkipBin });
+            p.push({ key: 'bin', title: T('Select Bin'), items: lists.bins || [], allowSkip: cfg.allowSkipBin });
         }
         // Custom fields are weigh-in only, matching the kiosk.
         if (inbound && lists.customFields && lists.customFields.length) {
             lists.customFields.forEach(function (f) {
                 if (f.fieldType === 'Text') {
-                    p.push({ key: 'cf' + f.id, cfId: f.id, title: 'Select ' + f.name,
+                    p.push({ key: 'cf' + f.id, cfId: f.id, title: TF('Select {0}', f.name),
                              items: f.listValues || [], allItems: f.listValues || [],
                              parentKey: cascadeParentKey(f.parentField),
                              valueMap: f.parentField ? (f.valueMap || {}) : null,
                              allowSkip: !f.required });
                 } else {
-                    p.push({ key: 'cf' + f.id, cfId: f.id, title: 'Enter ' + f.name,
+                    p.push({ key: 'cf' + f.id, cfId: f.id, title: TF('Enter {0}', f.name),
                              type: 'number', integer: f.fieldType === 'Integer',
                              min: f.minValue, max: f.maxValue, precision: f.precision,
                              allowSkip: !f.required });
@@ -974,25 +1001,25 @@
     /// or truck can be corrected even where nothing is prompted outbound.
     function allFieldPrompts(direction) {
         var p = [
-            { key: 'carrier',     title: 'Select Carrier',     items: lists.carriers,     allowSkip: cfg.allowSkipCarrier },
-            { key: 'truck',       title: 'Select Truck',       items: [], loadFrom: 'carrier', allowSkip: cfg.allowSkipTruckId },
-            { key: 'commodity',   title: 'Select Commodity',   items: lists.commodities,  allowSkip: cfg.allowSkipCommodity },
-            { key: 'customer',    title: 'Select Customer',    items: lists.customers,    allowSkip: cfg.allowSkipCustomer },
-            { key: 'location',    title: 'Select Location',    items: lists.locations,    allowSkip: cfg.allowSkipLocation },
-            { key: 'destination', title: 'Select Destination', items: lists.destinations, allowSkip: cfg.allowSkipDestination }
+            { key: 'carrier',     title: T('Select Carrier'),     items: lists.carriers,     allowSkip: cfg.allowSkipCarrier },
+            { key: 'truck',       title: T('Select Truck'),       items: [], loadFrom: 'carrier', allowSkip: cfg.allowSkipTruckId },
+            { key: 'commodity',   title: T('Select Commodity'),   items: lists.commodities,  allowSkip: cfg.allowSkipCommodity },
+            { key: 'customer',    title: T('Select Customer'),    items: lists.customers,    allowSkip: cfg.allowSkipCustomer },
+            { key: 'location',    title: T('Select Location'),    items: lists.locations,    allowSkip: cfg.allowSkipLocation },
+            { key: 'destination', title: T('Select Destination'), items: lists.destinations, allowSkip: cfg.allowSkipDestination }
         ];
         if (cfg.useBinInventory) {
-            p.push({ key: 'bin', title: 'Select Bin', items: lists.bins || [], allowSkip: cfg.allowSkipBin });
+            p.push({ key: 'bin', title: T('Select Bin'), items: lists.bins || [], allowSkip: cfg.allowSkipBin });
         }
         (lists.customFields || []).forEach(function (f) {
             if (f.fieldType === 'Text') {
-                p.push({ key: 'cf' + f.id, cfId: f.id, title: 'Select ' + f.name,
+                p.push({ key: 'cf' + f.id, cfId: f.id, title: TF('Select {0}', f.name),
                          items: f.listValues || [], allItems: f.listValues || [],
                          parentKey: cascadeParentKey(f.parentField),
                          valueMap: f.parentField ? (f.valueMap || {}) : null,
                          allowSkip: !f.required });
             } else {
-                p.push({ key: 'cf' + f.id, cfId: f.id, title: 'Enter ' + f.name,
+                p.push({ key: 'cf' + f.id, cfId: f.id, title: TF('Enter {0}', f.name),
                          type: 'number', integer: f.fieldType === 'Integer',
                          min: f.minValue, max: f.maxValue, precision: f.precision,
                          allowSkip: !f.required });
@@ -1053,7 +1080,7 @@
         answers = {};
         tareOffer = null; useTareChoice = null;
         show('busy');
-        $('#busy-text').text('Loading…');
+        $('#busy-text').text(T('Loading…'));
         loadLists().always(function () {
             queue = buildPrompts('inbound');
             startQueueWithRecall();
@@ -1113,7 +1140,7 @@
         answers = {};
         tareOffer = null; useTareChoice = null;
         show('busy');
-        $('#busy-text').text('Loading…');
+        $('#busy-text').text(T('Loading…'));
         // The truck is already known from the ticket, so the stored tare can be
         // looked up before the driver reaches the confirmation.
         loadTareOffer(openTicket.carrier, openTicket.truckId);
@@ -1148,17 +1175,17 @@
     /// does not come through the queue at all.
     function openPrompt(prompt, onUnavailable) {
         if (prompt.loadFrom !== 'carrier') { renderPrompt(prompt); return; }
-        if (!answers.carrier) { onUnavailable('Choose a carrier first.'); return; }
+        if (!answers.carrier) { onUnavailable(T('Choose a carrier first.')); return; }
         $.getJSON('/api/mobile/trucks/' + encodeURIComponent(answers.carrier))
             .done(function (trucks) {
                 if (!trucks || !trucks.length) {
-                    onUnavailable('No trucks are assigned to "' + answers.carrier + '" — see the office.');
+                    onUnavailable(TF('No trucks are assigned to "{0}" — see the office.', answers.carrier));
                     return;
                 }
                 prompt.items = trucks;
                 renderPrompt(prompt);
             })
-            .fail(function () { onUnavailable('Could not load trucks. Try again.'); });
+            .fail(function () { onUnavailable(T('Could not load trucks. Try again.')); });
     }
 
     function nextPrompt() {
@@ -1195,7 +1222,7 @@
             // list came back empty would lose data they never touched.
             if (editingKey) {
                 editingKey = null;
-                banner('No choices available for ' + labelFor(prompt.key) + '.', 'warn');
+                banner(TF('No choices available for {0}.', labelFor(prompt.key)), 'warn');
                 showConfirm();
                 return;
             }
@@ -1218,7 +1245,7 @@
         currentItems.forEach(function (item) {
             var isNone = (item === '' || item == null);
             var $i = $('<div class="list-item" role="button" tabindex="0"></div>')
-                .text(isNone ? '— None —' : item)
+                .text(isNone ? T('— None —') : item)
                 .toggleClass('none', isNone);
             if (!isNone && item === current) { $i.addClass('recalled'); $recalled = $i; }
             $i.on('click', function () { pick(prompt, item); });
@@ -1327,18 +1354,19 @@
         var p = numPrompt;
         if (numValue === '' || numValue === '0.') {
             if (p.allowSkip !== false) { answers[p.key] = ''; advance(); }
-            else $('#num-error').text('A value is required');
+            else $('#num-error').text(T('A value is required'));
             return;
         }
         var v = parseFloat(numValue);
-        if (isNaN(v)) { $('#num-error').text('Not a valid number'); return; }
-        if (p.min != null && v < p.min) { $('#num-error').text('Minimum is ' + p.min); return; }
-        if (p.max != null && v > p.max) { $('#num-error').text('Maximum is ' + p.max); return; }
+        if (isNaN(v)) { $('#num-error').text(T('Not a valid number')); return; }
+        if (p.min != null && v < p.min) { $('#num-error').text(TF('Minimum is {0}', p.min)); return; }
+        if (p.max != null && v > p.max) { $('#num-error').text(TF('Maximum is {0}', p.max)); return; }
         if (!p.integer && p.precision != null) {
             var dot = numValue.indexOf('.');
             var dec = dot < 0 ? 0 : numValue.length - dot - 1;
             if (dec > p.precision) {
-                $('#num-error').text('Up to ' + p.precision + ' decimal place' + (p.precision === 1 ? '' : 's'));
+                $('#num-error').text(TF(p.precision === 1
+                    ? 'Up to {0} decimal place' : 'Up to {0} decimal places', p.precision));
                 return;
             }
         }
@@ -1363,9 +1391,9 @@
         if (keys.length === 0 && !outbound) { startWeighment(); return; }
 
         $('#confirm-title').text(outbound
-            ? 'Confirm Weigh Out' + (openTicket ? ' · #' + openTicket.ticket : '')
-            : 'Confirm Weigh In');
-        $('#confirm-go').text(outbound ? 'Confirm & Weigh Out' : 'Confirm & Weigh In');
+            ? (openTicket ? TF('Confirm Weigh Out · #{0}', openTicket.ticket) : T('Confirm Weigh Out'))
+            : T('Confirm Weigh In'));
+        $('#confirm-go').text(outbound ? T('Confirm & Weigh Out') : T('Confirm & Weigh In'));
         $('#confirm-weights').toggle(outbound);
         // Carrier and truck are settled by now, so the offer can be fetched
         // while the driver reads the summary.
@@ -1385,11 +1413,11 @@
             var $row = $('<div class="cf-row"></div>');
             $('<span class="cf-label"></span>').text(labelFor(key)).appendTo($row);
             $('<span class="cf-value"></span>')
-                .text(blank ? '— none —' : v)
+                .text(blank ? T('— none —') : v)
                 .toggleClass('skipped', blank)
                 .appendTo($row);
             if (prompt) {
-                $('<span class="cf-edit">CHANGE</span>').appendTo($row);
+                $('<span class="cf-edit"></span>').text(T('CHANGE')).appendTo($row);
                 $row.attr({ role: 'button', tabindex: '0' });
                 $row.on('click', function () {
                     editingKey = key;
@@ -1406,8 +1434,8 @@
         // Time in is the one thing on a weigh-out that is a fact, not a choice.
         if (outbound && openTicket && openTicket.dateIn) {
             var $t = $('<div class="cf-row"></div>');
-            $('<span class="cf-label"></span>').text('Time In').appendTo($t);
-            $('<span class="cf-value"></span>').text(new Date(openTicket.dateIn).toLocaleString()).appendTo($t);
+            $('<span class="cf-label"></span>').text(T('Time In')).appendTo($t);
+            $('<span class="cf-value"></span>').text(new Date(openTicket.dateIn).toLocaleString(LANG)).appendTo($t);
             $l.append($t);
         }
         show('confirm');
@@ -1419,7 +1447,7 @@
             $('#confirm-list .tare-row').remove();
             if (!tareOffer) return;
             var $r = $('<div class="cf-row tare-row"></div>');
-            $('<span class="cf-label"></span>').text('Stored Tare').appendTo($r);
+            $('<span class="cf-label"></span>').text(T('Stored Tare')).appendTo($r);
             $('<span class="cf-value"></span>').text(tareLine()).appendTo($r);
             $('#confirm-list').append($r);
         });
@@ -1451,7 +1479,7 @@
         if (!cfg.useRetainedTare) { useTareChoice = false; proceedWithWeighment(); return; }
 
         show('busy');
-        $('#busy-text').text('Checking stored tare…');
+        $('#busy-text').text(T('Checking stored tare…'));
         (tarePromise || $.Deferred().resolve().promise()).always(function () {
             if (!tareOffer) { useTareChoice = false; proceedWithWeighment(); return; }
             refreshConfirmButton();
@@ -1463,26 +1491,29 @@
         if (flow === 'weighout') {
             var live = scaleData.error ? null : scaleData.weight;
             showModal({
-                title: 'Reuse stored tare?',
-                text: 'This truck has a stored empty weight of ' + tareLine() + '. '
-                    + 'Use it to close the load, or weigh the truck on the scale now'
-                    + (live !== null ? ' (' + live.toLocaleString() + ' lb)' : '') + '?',
-                okLabel: 'Use stored ' + tareOffer.tare.toLocaleString() + ' lb',
+                title: T('Reuse stored tare?'),
+                // Two whole sentences rather than glued fragments — Spanish
+                // does not put the live weight where English does.
+                text: live !== null
+                    ? TF('This truck has a stored empty weight of {0}. Use it to close the load, or weigh the truck on the scale now ({1} lb)?',
+                         tareLine(), live.toLocaleString())
+                    : TF('This truck has a stored empty weight of {0}. Use it to close the load, or weigh the truck on the scale now?',
+                         tareLine()),
+                okLabel: TF('Use stored {0} lb', tareOffer.tare.toLocaleString()),
                 okClass: 'btn-green',
-                cancelLabel: 'Weigh on scale',
+                cancelLabel: T('Weigh on scale'),
                 onOk: function () { useTareChoice = true; proceedWithWeighment(); },
                 onCancel: function () { useTareChoice = false; proceedWithWeighment(); }
             });
             return;
         }
         showModal({
-            title: 'Reuse stored tare?',
-            text: 'This truck has a stored empty weight of ' + tareLine() + '. '
-                + 'Finish the load now using it, and you will not need to weigh out. '
-                + 'Otherwise the ticket stays open until you weigh out on the scale.',
-            okLabel: 'Finish now',
+            title: T('Reuse stored tare?'),
+            text: TF('This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Otherwise the ticket stays open until you weigh out on the scale.',
+                     tareLine()),
+            okLabel: T('Finish now'),
             okClass: 'btn-green',
-            cancelLabel: 'Weigh out later',
+            cancelLabel: T('Weigh out later'),
             onOk: function () { useTareChoice = true; proceedWithWeighment(); },
             onCancel: function () { useTareChoice = false; proceedWithWeighment(); }
         });
@@ -1493,9 +1524,9 @@
     /// driver taps: the truck can roll off, or the feed can drop, during the
     /// settle wait that follows.
     function captureBlocker() {
-        if (scaleData.error) return 'Scale is not reporting — see the office.';
-        if (scaleData.motion) return 'Scale is still moving — wait for it to settle.';
-        if (scaleData.weight < ON_SCALE_LB) return 'Pull onto the scale before weighing.';
+        if (scaleData.error) return T('Scale is not reporting — see the office.');
+        if (scaleData.motion) return T('Scale is still moving — wait for it to settle.');
+        if (scaleData.weight < ON_SCALE_LB) return T('Pull onto the scale before weighing.');
         return null;
     }
 
@@ -1516,25 +1547,25 @@
 
         // Motion on its own is worth waiting out: the truck is on the scale
         // and still settling. A dead feed or an empty scale is a refusal.
-        if (scaleData.error) { abortWeighment('Scale is not reporting — see the office.'); return; }
-        if (scaleData.weight < ON_SCALE_LB) { abortWeighment('Pull onto the scale before weighing.'); return; }
+        if (scaleData.error) { abortWeighment(T('Scale is not reporting — see the office.')); return; }
+        if (scaleData.weight < ON_SCALE_LB) { abortWeighment(T('Pull onto the scale before weighing.')); return; }
 
         show('busy');
         if (!captureBlocker()) { capture(); return; }
 
-        $('#busy-text').text('Waiting for the scale to settle…');
+        $('#busy-text').text(T('Waiting for the scale to settle…'));
         clearTimeout(motionTimer);
         var started = Date.now();
         (function waitMotion() {
             if (!captureBlocker()) { capture(); return; }
             // Re-checked every tick, not just once at the start.
-            if (scaleData.error) { abortWeighment('Scale is not reporting — see the office.'); return; }
+            if (scaleData.error) { abortWeighment(T('Scale is not reporting — see the office.')); return; }
             if (scaleData.weight < ON_SCALE_LB) {
-                abortWeighment('The truck left the scale before the weight was taken.');
+                abortWeighment(T('The truck left the scale before the weight was taken.'));
                 return;
             }
             if (Date.now() - started > MOTION_TIMEOUT_MS) {
-                abortWeighment('Scale never settled. Hold still and try again.');
+                abortWeighment(T('Scale never settled. Hold still and try again.'));
                 return;
             }
             motionTimer = setTimeout(waitMotion, 250);
@@ -1559,7 +1590,7 @@
             var blocked = captureBlocker();
             if (blocked) { abortWeighment(blocked); return; }
         }
-        $('#busy-text').text('Saving…');
+        $('#busy-text').text(T('Saving…'));
         if (flow === 'weighin') saveWeighIn();
         else saveWeighOut();
     }
@@ -1611,7 +1642,7 @@
                 // A retained tare closed the load in one weighment — there is
                 // no open ticket to come back to.
                 openTicket = null;
-                showDone(r, 'Weighed in and out on a retained tare.');
+                showDone(r, T('Weighed in and out on a retained tare.'));
                 return;
             }
             // Use the server's copy of the ticket rather than the answers that
@@ -1626,7 +1657,7 @@
             };
             ticketCustomValues = r.customFields || customFieldPayload();
             showOpenTicket();
-            banner('Weighed in — ticket #' + r.ticket);
+            banner(TF('Weighed in — ticket #{0}', r.ticket));
         }).fail(function (xhr) {
             if (xhr.status === 409 && xhr.responseJSON && xhr.responseJSON.openTicket) {
                 // Another tab or a stale view already opened a load.
@@ -1634,7 +1665,7 @@
                 ticketCustomValues = xhr.responseJSON.customFields || {};
                 flow = null;
                 showOpenTicket();
-                banner('This phone already has an open ticket.', 'warn');
+                banner(T('This phone already has an open ticket.'), 'warn');
                 return;
             }
             failFlow(xhr);
@@ -1668,14 +1699,14 @@
             flow = null;
             openTicket = null;
             openTicketTare = null;
-            showDone(r, r.tareReused ? 'Closed on this truck’s stored empty weight.' : null);
+            showDone(r, r.tareReused ? T('Closed on this truck’s stored empty weight.') : null);
         }).fail(function (xhr) {
             if (xhr.status === 404) {
                 // The office closed or voided it while the driver was prompting.
                 openTicket = null;
                 flow = null;
                 show('home');
-                banner('That ticket is no longer open — see the office.', 'warn');
+                banner(T('That ticket is no longer open — see the office.'), 'warn');
                 return;
             }
             failFlow(xhr);
@@ -1683,7 +1714,7 @@
     }
 
     function failFlow(xhr) {
-        var msg = 'Could not save (' + xhr.status + '). Try again.';
+        var msg = TF('Could not save ({0}). Try again.', xhr.status);
         if (xhr.responseJSON && xhr.responseJSON.message) msg = xhr.responseJSON.message;
         cancelFlow();
         banner(msg, 'err');
@@ -1728,33 +1759,34 @@
             $('<span class="cf-value"></span>').text(value).appendTo($r);
             $d.append($r);
         }
-        row('Weighed In', openTicket.inWeight != null ? openTicket.inWeight.toLocaleString() + ' lb' : '');
-        row('Time In', openTicket.dateIn ? new Date(openTicket.dateIn).toLocaleString() : '');
-        row('Carrier', openTicket.carrier);
-        row('Truck ID', openTicket.truckId);
-        row('Commodity', openTicket.commodity);
-        row('Customer', openTicket.customer);
-        row('Location', openTicket.location);
-        row('Destination', openTicket.destination);
-        row('Bin', openTicket.bin);
+        // Labels translated; the values are the office's own master data.
+        row(T('Weighed In'), openTicket.inWeight != null ? openTicket.inWeight.toLocaleString() + ' lb' : '');
+        row(T('Time In'), openTicket.dateIn ? new Date(openTicket.dateIn).toLocaleString(LANG) : '');
+        row(T('Carrier'), openTicket.carrier);
+        row(T('Truck ID'), openTicket.truckId);
+        row(T('Commodity'), openTicket.commodity);
+        row(T('Customer'), openTicket.customer);
+        row(T('Location'), openTicket.location);
+        row(T('Destination'), openTicket.destination);
+        row(T('Bin'), openTicket.bin);
         show('open');
         refreshActionButtons();
     }
 
     $('#btn-reset').on('click', function () {
         confirmModal(
-            'Cancel this weigh-in?',
-            'Ticket #' + (openTicket ? openTicket.ticket : '') + ' will be voided and this phone will start over. ' +
-            'You cannot undo this — if the load is real, weigh out instead.',
-            'Yes, void it',
+            T('Cancel this weigh-in?'),
+            TF('Ticket #{0} will be voided and this phone will start over. You cannot undo this — if the load is real, weigh out instead.',
+               openTicket ? openTicket.ticket : ''),
+            T('Yes, void it'),
             function () {
                 $.ajax({ url: '/api/mobile/reset', method: 'POST' })
                     .done(function (r) {
                         openTicket = null;
                         show('home');
-                        banner(r.voided ? 'Ticket #' + r.ticket + ' voided.' : 'Session cleared.', 'warn');
+                        banner(r.voided ? TF('Ticket #{0} voided.', r.ticket) : T('Session cleared.'), 'warn');
                     })
-                    .fail(function () { banner('Could not reset. Try again.', 'err'); });
+                    .fail(function () { banner(T('Could not reset. Try again.'), 'err'); });
             });
     });
 
@@ -1774,11 +1806,11 @@
             $('<span class="cf-value"></span>').text(value).appendTo($r);
             $d.append($r);
         }
-        if (note) row('Note', note);
-        row('In', (r.inWeight != null ? r.inWeight.toLocaleString() + ' lb' : ''));
-        row('Out', (r.outWeight != null ? r.outWeight.toLocaleString() + ' lb' : ''));
-        if (r.dateIn) row('Time In', new Date(r.dateIn).toLocaleString());
-        if (r.dateOut) row('Time Out', new Date(r.dateOut).toLocaleString());
+        if (note) row(T('Note'), note);
+        row(T('In'), (r.inWeight != null ? r.inWeight.toLocaleString() + ' lb' : ''));
+        row(T('Out'), (r.outWeight != null ? r.outWeight.toLocaleString() + ' lb' : ''));
+        if (r.dateIn) row(T('Time In'), new Date(r.dateIn).toLocaleString(LANG));
+        if (r.dateOut) row(T('Time Out'), new Date(r.dateOut).toLocaleString(LANG));
         show('done');
     }
 

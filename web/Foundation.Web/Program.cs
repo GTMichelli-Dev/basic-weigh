@@ -83,6 +83,11 @@ builder.Services.AddControllersWithViews();
 // AppSetup cache — single DB read, invalidated on save
 builder.Services.AddSingleton<Foundation.Web.Services.AppSetupCache>();
 
+// Bilingual (EN/ES) UI. The translator resolves the request's language from
+// ?lang= / the cookie / the site default, so it needs the HttpContext.
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<Foundation.Web.Services.Translator>();
+
 // Swagger / OpenAPI — always enabled, protected by ApiDefinitionPin
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
@@ -166,6 +171,30 @@ app.UseDevExpressControls();
 if (!app.Environment.IsDevelopment())
     app.UseHttpsRedirection();
 app.UseStaticFiles();
+
+// Language: ?lang=es pins a device — the on-screen toggle on the kiosk and
+// phone links back with it, and a kiosk Pi can carry it in the install URL
+// alongside ?pin= and ?scale-id=. Remembered in a cookie so the page's own
+// AJAX calls, which carry no query string, answer in the same language.
+// Runs before anything writes a response, so the Append always lands.
+app.Use(async (context, next) =>
+{
+    var requested = Foundation.Web.Services.Lang.Normalize(
+        context.Request.Query[Foundation.Web.Services.Lang.QueryName].FirstOrDefault());
+    if (requested != null && context.Request.Cookies[Foundation.Web.Services.Lang.CookieName] != requested)
+    {
+        context.Response.Cookies.Append(
+            Foundation.Web.Services.Lang.CookieName, requested, new CookieOptions
+            {
+                // A display preference, not a credential — readable like bw.siteId.
+                HttpOnly = false,
+                SameSite = SameSiteMode.Lax,
+                Path = "/",
+                Expires = DateTimeOffset.UtcNow.AddYears(1)
+            });
+    }
+    await next();
+});
 
 // Swagger PIN protection middleware — must come before UseSwagger
 app.Use(async (context, next) =>
