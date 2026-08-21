@@ -181,7 +181,12 @@ app.Use(async (context, next) =>
 {
     var requested = Foundation.Web.Services.Lang.Normalize(
         context.Request.Query[Foundation.Web.Services.Lang.QueryName].FirstOrDefault());
-    if (requested != null && context.Request.Cookies[Foundation.Web.Services.Lang.CookieName] != requested)
+    // Only consult the setup cache when a ?lang= is actually present, so the
+    // common request pays nothing for a feature the site may not even use.
+    if (requested != null
+        && context.RequestServices.GetRequiredService<Foundation.Web.Services.AppSetupCache>()
+                  .Get().EnableSpanish
+        && context.Request.Cookies[Foundation.Web.Services.Lang.CookieName] != requested)
     {
         context.Response.Cookies.Append(
             Foundation.Web.Services.Lang.CookieName, requested, new CookieOptions

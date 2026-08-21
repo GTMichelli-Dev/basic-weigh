@@ -54,7 +54,7 @@ Foundation is a web-based truck scale management application for weighing inboun
 - **Remote Printing** — Print tickets to thermal printers via Raspberry Pi print agents over SignalR
 - **Ticket Designer** — Edit ticket layouts with the built-in DevExpress Report Designer
 - **Driver Signature Capture** — Operator-device overlay or a remote signature-pad tablet (opened by scanning a QR code on the Setup page)
-- **Bilingual (English / Spanish)** — The driver-facing screens — kiosk, the phone page, the signature pad and the ticket views — render in either language. A site default is set in Setup, each device can override it with an on-screen **EN / ES** button, and a kiosk Pi can be pinned to one language at install time. Office and admin pages are English
+- **Bilingual (English / Spanish)** — Off by default; one checkbox in Setup turns it on. The driver-facing screens — kiosk, the phone page, the signature pad and the ticket views — then render in either language, with a site default, an on-screen **EN / ES** button per device, and a kiosk Pi pinnable to one language at install time. Office and admin pages are English
 - **User Login & Roles** — Optional login with User, Manager, and Admin roles
 - **Customizable** — Themes, custom icons, configurable kiosk prompts, and editable ticket templates; Setup changes auto-save
 - **Demo Mode** — Built-in scale simulator for testing without hardware, one independent simulator per defined scale
@@ -554,8 +554,18 @@ weighed with.
 
 ### Language (English / Spanish)
 
-The driver-facing screens are bilingual. **Setup → System → Language** sets the
-site default; everything else is an override on top of it.
+The driver-facing screens can run in English or Spanish. The whole feature is
+**off by default** — deploying this build changes nothing until someone turns
+it on.
+
+**Setup → System → Enable Spanish** is the master switch. While it is off there
+is no language button on any screen, `?lang=` is ignored, a leftover language
+cookie is ignored, and every screen is English — exactly how the app behaved
+before Spanish existed. Turning it off again needs no deploy and no data
+change, so a site can be rolled back from the Setup page mid-shift.
+
+With it on, **Setup → System → Default Language** sets what those screens show
+before anyone chooses; everything else is an override on top of it.
 
 **What is translated**
 
@@ -570,6 +580,7 @@ site default; everything else is an override on top of it.
 
 **How a screen picks its language**, first match wins:
 
+0. **Enable Spanish off** → English, full stop. Nothing below is consulted.
 1. `?lang=es` in the URL — pins one device regardless of the site default.
 2. The `bw.lang` cookie — what the on-screen **EN / ES** button leaves behind.
 3. The site default from Setup.

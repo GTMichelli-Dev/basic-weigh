@@ -802,7 +802,10 @@
     <div id="kiosk-header">
         @* Swaps only ?lang= — pin, service-id, printer-id, scale-id and
            reader-id ride along, so toggling never unmaps the kiosk. *@
-        <a class="kiosk-lang" href="@L.SwitchUrl" title='@L.SwitchTitle'>@L.SwitchLabel</a>
+        @if (L.SpanishEnabled)
+        {
+            <a class="kiosk-lang" href="@L.SwitchUrl" title='@L.SwitchTitle'>@L.SwitchLabel</a>
+        }
         <img src="/api/setup/icon" alt="Icon" />
         <span class="company-name">@(Model.Header1 ?? "Foundation")</span>
         @if (Model.DemoMode)

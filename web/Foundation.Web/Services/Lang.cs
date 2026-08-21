@@ -54,6 +54,11 @@ public static class Lang
     /// HttpContext (background services, scheduled report runs).</summary>
     public static string Resolve(HttpContext? http, AppSetup? setup)
     {
+        // The master switch outranks the URL, the cookie and the site default
+        // alike: with Spanish off there is exactly one language, and a stale
+        // cookie or a bookmarked ?lang=es URL cannot reintroduce it.
+        if (setup?.EnableSpanish != true) return English;
+
         if (http != null)
         {
             var fromQuery = Normalize(http.Request.Query[QueryName].FirstOrDefault());

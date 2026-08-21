@@ -22,6 +22,10 @@ public class Translator
     /// cached, but the cookie/query check is pure and cheap to memoize.</summary>
     public string Code => _code ??= Lang.Resolve(_http.HttpContext, _setupCache.Get());
 
+    /// <summary>Whether this site offers Spanish at all. False means no
+    /// toggle is rendered and every screen is English.</summary>
+    public bool SpanishEnabled => _setupCache.Get().EnableSpanish;
+
     /// <summary>Language the on-screen toggle switches to.</summary>
     public string OtherCode => Lang.Other(Code);
 

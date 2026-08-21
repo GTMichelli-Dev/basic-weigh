@@ -147,17 +147,27 @@
                                 </div>
                             </div>
                             <div class="mb-2">
+                                <div class="form-check">
+                                    <input asp-for="EnableSpanish" class="form-check-input" type="checkbox" />
+                                    <label asp-for="EnableSpanish" class="form-check-label small"></label>
+                                </div>
+                                <div class="form-text small">
+                                    Off: every screen is English and no language button appears anywhere —
+                                    exactly how the app behaved before Spanish was added. On: the kiosk, the
+                                    phone page (/Mobile), the signature pad and the ticket views can run in
+                                    Spanish. Office and admin pages are English either way.
+                                </div>
+                            </div>
+                            <div class="mb-2" id="languageSection" style="display: @(Model.EnableSpanish ? "block" : "none");">
                                 <label asp-for="Language" class="form-label mb-0 small"></label>
                                 <select asp-for="Language" class="form-select form-select-sm">
                                     <option value="en">English</option>
                                     <option value="es">Español (Spanish)</option>
                                 </select>
                                 <div class="form-text small">
-                                    Default language for the kiosk, the phone page (/Mobile), the signature pad
-                                    and the ticket views. A device can override it with the EN/ES button on
-                                    those screens, or with <code>?lang=es</code> in its URL — so one kiosk can
-                                    run in Spanish while the rest of the site stays English. Office and admin
-                                    pages are English either way.
+                                    What those screens show before anyone chooses. A device can override it
+                                    with the EN/ES button, or with <code>?lang=es</code> in its URL — so one
+                                    kiosk can run in Spanish while the rest of the site stays English.
                                 </div>
                             </div>
                             <div class="mb-2">
@@ -1975,6 +1985,11 @@
     // (Scale assignment moved to the Scales page — named site scales.)
 
     // --- Dynamic visibility toggles ---
+    // The default-language picker is meaningless while Spanish is off.
+    document.getElementById('EnableSpanish').addEventListener('change', function () {
+        document.getElementById('languageSection').style.display = this.checked ? 'block' : 'none';
+    });
+
     document.getElementById('UseLogin').addEventListener('change', function () {
         var useLogin = this.value === 'true';
         document.getElementById('kioskCodeSection').style.display = useLogin ? 'block' : 'none';

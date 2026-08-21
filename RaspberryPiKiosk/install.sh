@@ -145,7 +145,9 @@ fi
 # EN/ES button on the kiosk screen; that choice is a cookie on this Pi and wins
 # until it is cleared, at which point the URL parameter applies again.
 echo "  LANG  — 'es' runs this kiosk in Spanish, 'en' in English. Leave blank to"
-echo "          follow the site default from the web app's Setup page."
+echo "          follow the site default from the web app's Setup page. Requires"
+echo "          'Enable Spanish' to be ticked in Setup — the server ignores this"
+echo "          parameter while that switch is off."
 if [[ -n "$default_lang" ]]; then
     read -r -p "  Language (en/es) [$default_lang]: " KIOSK_LANG
     KIOSK_LANG="${KIOSK_LANG:-$default_lang}"

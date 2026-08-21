@@ -51,13 +51,24 @@ public class AppSetup
     public string Theme { get; set; } = "default";
 
     /// <summary>
+    /// Master switch for the whole bilingual feature. Off (the default) means
+    /// the app behaves exactly as it did before Spanish existed: no EN/ES
+    /// button on any screen, ?lang= ignored, a leftover language cookie
+    /// ignored, every screen English. Turn it on per site to roll Spanish out
+    /// one yard at a time; turning it back off needs no deploy.
+    /// </summary>
+    [Display(Name = "Enable Spanish")]
+    public bool EnableSpanish { get; set; }
+
+    /// <summary>
     /// Site default language for the driver-facing screens (kiosk, phone,
     /// signature pad, ticket views): "en" or "es". A device overrides it with
     /// the on-screen toggle, or with ?lang= in its URL — a kiosk Pi pinned to
-    /// Spanish at install time stays Spanish regardless of this.
+    /// Spanish at install time stays Spanish regardless of this. Has no effect
+    /// while <see cref="EnableSpanish"/> is off.
     /// </summary>
     [StringLength(5)]
-    [Display(Name = "Language")]
+    [Display(Name = "Default Language")]
     public string Language { get; set; } = "en";
 
     // Kiosk prompts. Each user-facing prompt is split into "On Inbound" / "On Outbound"

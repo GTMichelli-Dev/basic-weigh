@@ -82,7 +82,10 @@
     <!-- Standby: shown until the operator requests a signature -->
     <div id="standbyView" class="view active">
         @* Carries pad-id and pin through, so toggling keeps the pad mapped. *@
-        <a class="lang-btn" href="@L.SwitchUrl" title='@L.SwitchTitle'>@L.SwitchLabel</a>
+        @if (L.SpanishEnabled)
+        {
+            <a class="lang-btn" href="@L.SwitchUrl" title='@L.SwitchTitle'>@L.SwitchLabel</a>
+        }
         <img src="/api/setup/icon" alt="" onerror="this.style.display='none'" />
         <h1>@header1</h1>
         <p>@L["Please wait…"]</p>
