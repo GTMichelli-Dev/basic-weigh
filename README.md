@@ -644,6 +644,26 @@ as warnings — English-looking text on a driver screen that nothing wraps. Plai
 Python, no dependencies, runs in about a second. Office and admin pages are
 outside its scope, since they are English by design.
 
+**Getting the Spanish written.** When it reports missing strings:
+
+```bash
+python3 scripts/check-translations.py --prompt
+```
+
+That prints a ready-to-paste prompt — the strings needing Spanish, the entire
+existing catalog as a glossary so new entries match the vocabulary already on
+live kiosks, and the constraints that matter here (keep `{0}` placeholders,
+preserve ALL CAPS on the big kiosk calls to action, keep it short enough for a
+fixed-width button). Paste it into Claude Code or claude.ai, paste the returned
+`["English"] = "Spanish",` lines into `LangCatalog.cs`.
+
+No API key and no per-use cost — it is a prompt, not a service call. Nothing in
+the app ever calls a translation API; the kiosk renders Spanish with no network
+at all, which is the point.
+
+Read what comes back before pasting it. These strings tell a driver standing
+next to a moving truck what to do.
+
 ### User Login System
 
 Login is **optional** — controlled by the "Require Login" setting on the Setup page. When disabled, all features are accessible without authentication.

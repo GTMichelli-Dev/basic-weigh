@@ -31,8 +31,22 @@ What it reports
              positives; read them, don't obey them.
 
 MISSING and ORPHANED fail the run. UNWRAPPED never does.
+
+Getting the Spanish written
+---------------------------
+    python3 scripts/check-translations.py --prompt
+
+prints a ready-to-paste prompt: the strings that need Spanish, the whole
+existing catalog as a glossary so the new ones match the vocabulary already
+deployed, and the constraints that matter on a kiosk screen. Paste it into
+Claude Code (or claude.ai), paste the returned lines into LangCatalog.cs.
+
+That path deliberately needs no API key and costs nothing beyond a Claude
+subscription. Read what comes back before pasting it — these strings tell a
+driver standing next to a moving truck what to do.
 """
 
+import argparse
 import io
 import os
 import re
@@ -190,12 +204,84 @@ def sweep_unwrapped(catalog_keys):
     return hits
 
 
+PROMPT_HEADER = """\
+Translate UI strings into Spanish for Foundation, a truck-scale management
+system used at grain elevators and scale houses in the United States.
+
+Who reads these: truck drivers standing at a weigh scale, on a 1280x800
+touchscreen kiosk (often in direct sun) or on their own phone. Many are native
+Spanish speakers from Mexico and Central America. Use Latin American Spanish.
+
+Rules:
+
+1. Keep {0}, {1} placeholders exactly as written. Reorder them if Spanish word
+   order needs it, but never drop or renumber one.
+2. Preserve the capitalisation style. ALL CAPS strings are the large
+   call-to-action text on the kiosk and must come back ALL CAPS. Title Case
+   stays Title Case. lowercase stays lowercase.
+3. Keep it short. These sit in fixed-width buttons, headers and overlays; a
+   translation much longer than the English overflows the layout.
+4. Use direct imperative address (usted implied, not written out).
+5. Match the glossary below for any term that appears in it. Those strings are
+   already deployed on live kiosks and the vocabulary has to stay consistent --
+   a screen that says "Boleta" in one place and "Ticket" in another is worse
+   than one that is all English.
+6. If a string is genuinely ambiguous without more context, translate it and
+   add a trailing comment saying what you assumed. Do not guess silently.
+
+Return ONLY lines in this exact C# format, ready to paste into
+web/Foundation.Web/Services/LangCatalog.cs, in the same order as the input:
+
+    ["English source"] = "Spanish",
+
+Escape any double quote inside a value as \\" -- the target is a C# file.
+"""
+
+
+def emit_prompt(pairs, missing):
+    """Ready-to-paste prompt: what needs Spanish, plus the vocabulary to match."""
+    if not missing:
+        print("Nothing to translate — every referenced string is in the catalog.")
+        print()
+        print("This mode lists strings the code asks for that the catalog lacks.")
+        print("To re-translate something that already has Spanish, edit its line")
+        print("in LangCatalog.cs directly.")
+        return 0
+
+    print(PROMPT_HEADER)
+    print("=== GLOSSARY: already translated, match these terms ===")
+    print()
+    for english, spanish in pairs:
+        print(f"{english}  ->  {spanish}")
+    print()
+    plural = "STRING" if len(missing) == 1 else "STRINGS"
+    print(f"=== TRANSLATE {'THIS' if len(missing) == 1 else 'THESE'} "
+          f"{len(missing)} {plural} ===")
+    print()
+    for key in sorted(missing):
+        print(key)
+    print()
+    return 0
+
+
 def main():
+    parser = argparse.ArgumentParser(
+        description="Check the Spanish catalog against the code that uses it.")
+    parser.add_argument(
+        "--prompt", action="store_true",
+        help="print a paste-ready translation prompt for the missing strings "
+             "(glossary included) instead of the usual report")
+    args = parser.parse_args()
+
     pairs, catalog_keys, dupes = load_catalog()
     calls, literals = scan(source_files())
 
     missing = {k: v for k, v in calls.items() if k not in catalog_keys}
     orphaned = sorted(catalog_keys - literals)
+
+    if args.prompt:
+        return emit_prompt(pairs, missing)
+
     unwrapped = sweep_unwrapped(catalog_keys)
 
     print(f"catalog:    {len(pairs)} entries")
