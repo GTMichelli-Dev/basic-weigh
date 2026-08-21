@@ -1,6 +1,6 @@
 # Foundation - Truck Scale Management System
 
-Foundation is a web-based truck scale management application for weighing inbound and outbound trucks, tracking transactions, and generating reports. It runs on ASP.NET Core 8 with a SQLite database and supports touchscreen kiosk terminals with remote ticket printing via Raspberry Pi.
+Foundation is a web-based truck scale management application for weighing inbound and outbound trucks, tracking transactions, and generating reports. It runs on ASP.NET Core 10 with a SQLite database and supports touchscreen kiosk terminals with remote ticket printing via Raspberry Pi.
 
 ---
 
@@ -835,7 +835,7 @@ The deploy script checks DNS before deploying. If it fails, make sure:
 │     └── WebSocket passthrough (SignalR)      │
 │                                              │
 │   Foundation.Web (port 5110)                 │
-│     ├── ASP.NET Core 8 / Kestrel            │
+│     ├── ASP.NET Core 10 / Kestrel            │
 │     ├── SQLite database                      │
 │     ├── DevExpress Report Engine             │
 │     └── SignalR Hub (real-time updates)      │
@@ -870,7 +870,7 @@ runs only the ones it needs:
 
 ### Prerequisites
 
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
 - Git
 
 ### Run Locally
