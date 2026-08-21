@@ -613,9 +613,36 @@ prompts for it) or leave it on the site default.
 All Spanish lives in one file, `web/Foundation.Web/Services/LangCatalog.cs`, as
 plain `["English source"] = "Spanish"` pairs. There is no translation service
 and no network call at runtime — a kiosk with no internet renders Spanish fine.
+
+Editing a driver-facing screen is a two-step change:
+
+```razor
+<div class="big-message">@L["Back Up Slowly"]</div>      <!-- 1. wrap it -->
+```
+```csharp
+["Back Up Slowly"] = "Retroceda Despacio",               // 2. add the line
+```
+
 A string with no entry falls back to English rather than rendering blank, so a
-new feature is never broken by a missing translation; add the line when you get
-to it.
+missing translation degrades a screen instead of breaking it.
+
+**The one that bites**: the catalog is keyed by the English source text, so
+*rewording* an existing string silently orphans its translation. Change
+`@L["Place Truck on Scale"]` to `@L["Pull Truck onto Scale"]` and that line
+quietly reverts to English on every Spanish screen — no compile error, no
+warning.
+
+Run the checker before opening a PR that touches those screens:
+
+```bash
+python3 scripts/check-translations.py
+```
+
+It reports strings referenced in code but missing from the catalog, catalog
+entries nothing references any more (the reword signal), duplicate keys, and —
+as warnings — English-looking text on a driver screen that nothing wraps. Plain
+Python, no dependencies, runs in about a second. Office and admin pages are
+outside its scope, since they are English by design.
 
 ### User Login System
 

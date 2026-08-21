@@ -39,7 +39,6 @@ public static class LangCatalog
         ["Gross"] = "Bruto",
         ["Tare"] = "Tara",
         ["Net"] = "Neto",
-        ["Weight"] = "Peso",
         ["Scale"] = "Báscula",
         ["Date"] = "Fecha",
         ["Time In"] = "Hora de Entrada",
@@ -314,9 +313,6 @@ public static class LangCatalog
         // deliberately not touched here — a physical ticket keeps whatever
         // wording the site set up in the ticket designer.
         ["Print"] = "Imprimir",
-        ["Close"] = "Cerrar",
-        ["Scale Ticket"] = "Boleta de Báscula",
-        ["Signature"] = "Firma",
         ["Ticket Preview"] = "Vista Previa de la Boleta",
         ["Kiosk Ticket"] = "Boleta del Kiosco",
         ["Back to Completed Trucks"] = "Volver a Camiones Completados",
