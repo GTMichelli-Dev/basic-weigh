@@ -11,11 +11,11 @@
 #
 # Blank lines and #-comments are ignored.
 
-admin@valleyag.scaledata.net
-admin@buzzardroost.scaledata.net
+admin@northsite.yourcompany.com
+admin@southsite.yourcompany.com
 
 # Domain differs from the SSH host — deploying to an IP, serving a name:
-# admin@149.28.10.42        northwest.scaledata.net
+# admin@149.28.xxx.xxx        westsite.yourcompany.com
 
 # Non-default app port:
-# admin@southside.scaledata.net   southside.scaledata.net   8080
+# admin@eastsite.yourcompany.com   eastsite.yourcompany.com   8080

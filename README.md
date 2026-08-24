@@ -13,6 +13,7 @@ Foundation is a web-based truck scale management application for weighing inboun
   - [Raspberry Pi Kiosk Display](RaspberryPiKiosk/README.md)
 - [Deploy Script Reference](#deploy-script-reference)
   - [Server (Debian x64)](#server-debian-x64)
+  - [Multiple Sites at Once](#multiple-sites-at-once)
   - [Raspberry Pi Print Agent (arm64)](#raspberry-pi-print-agent-arm64)
   - [Raspberry Pi Kiosk Display (arm64)](#raspberry-pi-kiosk-display-arm64)
 - [Server Management](#server-management)
@@ -138,6 +139,7 @@ All scripts are in the [`deploy/`](deploy/) folder:
 | [`deploy/publish.sh`](deploy/publish.sh) | [`deploy/publish.bat`](deploy/publish.bat) | Builds the web app for Linux and creates a deployment tarball |
 | [`deploy/install.sh`](deploy/install.sh) | — | Installs on the server (Nginx, SSL, systemd service) |
 | [`deploy/deploy.sh`](deploy/deploy.sh) | [`deploy/deploy.bat`](deploy/deploy.bat) | One-step deploy: builds, uploads, and installs remotely |
+| [`deploy/deploy-all.sh`](deploy/deploy-all.sh) | [`deploy/deploy-all.bat`](deploy/deploy-all.bat) | Deploys every site in a manifest, in one pass |
 
 **deploy.sh options:**
 
@@ -163,6 +165,68 @@ bash deploy/deploy.sh admin@149.28.xxx.xxx --domain scale.yourcompany.com --emai
 # Self-signed cert (LAN only, no domain needed)
 bash deploy/deploy.sh admin@192.168.1.100
 ```
+
+### Multiple Sites at Once
+
+`deploy.sh` handles one site. Running it across a fleet means retyping the same
+email for each, and a full rebuild per site for byte-identical output.
+`deploy-all` reads a manifest, builds once, and deploys to every site listed.
+
+Copy [`deploy/sites.example.txt`](deploy/sites.example.txt) to `deploy/sites.txt`
+and list one site per line. A site's domain defaults to the host part of
+`user@host`, which is what you want when a box is reached at the name it serves:
+
+```
+admin@northsite.yourcompany.com
+admin@southsite.yourcompany.com
+
+# Domain differs from the SSH host — deploying to an IP, serving a name:
+admin@149.28.xxx.xxx        westsite.yourcompany.com
+
+# Non-default app port:
+admin@eastsite.yourcompany.com   eastsite.yourcompany.com   8080
+```
+
+`sites.txt` is gitignored — it names live customer hosts. Only the example ships.
+
+**First time only.** SSH prompts twice per site (once to upload, once to
+install), so a ten-site fleet is twenty password prompts. Install your public
+key on every host once and they stop for good:
+
+```bash
+bash deploy/deploy-all.sh --setup-keys
+```
+
+You're asked for each host's password one time. There is deliberately no way to
+pass `deploy-all` a password — a file holding it would become the one secret
+that unlocks every site in the fleet.
+
+**Then deploy the fleet:**
+
+```bash
+bash deploy/deploy-all.sh --email admin@yourcompany.com
+```
+
+**deploy-all.sh options:**
+
+```
+Options:
+  --sites <file>       Site manifest (default: deploy/sites.txt)
+  --email <email>      Let's Encrypt email, shared by every site
+  --key <ssh-key>      SSH key file, used for every site
+  --port <port>        Default app port for sites that don't name one
+  --setup-keys         Install your SSH public key on every host, then exit
+  --skip-build         Reuse the existing tarball instead of publishing fresh
+  --dry-run            Print what would be deployed and exit
+```
+
+A failed site is reported and the run continues, so one unreachable box doesn't
+strand the rest undeployed. The summary lists what succeeded and what didn't,
+and the script exits non-zero if anything failed.
+
+> `--rebuild-db` is deliberately **not** forwarded by `deploy-all`. It destroys
+> the database, and a fleet-wide wipe should never be one flag away. Use
+> `deploy.sh` for that, one site at a time, on purpose.
 
 ### Raspberry Pi Full Stack (web + scale reader + print service + tech AP)
 
@@ -352,6 +416,20 @@ deploy\deploy.bat admin@149.28.xxx.xxx --domain yourDNSName.scaledata.net --emai
 ```bash
 rm -f deploy/foundation-deploy.tar.gz
 bash deploy/deploy.sh admin@149.28.xxx.xxx --domain yourDNSName.scaledata.net --email admin@yourcompany.com
+```
+
+**Updating several sites at once?** Use [`deploy-all`](#multiple-sites-at-once)
+instead — it builds once and walks a site manifest, rather than rebuilding per
+site:
+
+**Windows:**
+```
+deploy\deploy-all.bat --email admin@yourcompany.com
+```
+
+**Linux / Mac / Git Bash:**
+```bash
+bash deploy/deploy-all.sh --email admin@yourcompany.com
 ```
 
 > **What's preserved during updates:**
