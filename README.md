@@ -644,6 +644,14 @@ as warnings — English-looking text on a driver screen that nothing wraps. Plai
 Python, no dependencies, runs in about a second. Office and admin pages are
 outside its scope, since they are English by design.
 
+Strings that reach the catalog through a helper rather than a literal `T()` —
+`dtRow('Gross:', …)` on the kiosk completion screen, for one — are covered too,
+via the `DYNAMIC_CALLS` table at the top of the script. The script re-checks
+every line of that table against the source on each run, so a helper that stops
+translating is reported instead of quietly taking its strings out of scope. Add
+a line when you write a helper of that shape; until you do, its strings show up
+as orphaned.
+
 **Getting the Spanish written.** When it reports missing strings:
 
 ```bash

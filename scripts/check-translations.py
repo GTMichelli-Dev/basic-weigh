@@ -26,11 +26,31 @@ What it reports
              Renders English on Spanish screens.
   ORPHANED   a catalog entry whose English text appears nowhere in the code.
              Usually the other half of a reword — fix the key or delete it.
+  UNVERIFIED a helper listed in DYNAMIC_CALLS that no longer translates the
+             argument it is listed for — see below.
   UNWRAPPED  (warning) English-looking text on a driver-facing screen that is
              not inside a translation call. Heuristic, so it has false
              positives; read them, don't obey them.
 
-MISSING and ORPHANED fail the run. UNWRAPPED never does.
+MISSING, ORPHANED and UNVERIFIED fail the run. UNWRAPPED never does.
+
+Dynamic call sites
+------------------
+Not every key sits inside a T(). The kiosk's completion screen writes
+
+    html += dtRow('Gross:', gross.toLocaleString() + ' lb');
+
+and dtRow translates the label. DYNAMIC_CALLS lists those helpers — function,
+declaring file, argument position — so their literals are checked like every
+other call site: reword one to 'Gross Weight:' without adding a catalog line
+and it is reported MISSING, exactly as a direct T() would be.
+
+The table is a claim about the code, so the checker re-derives it every run:
+each listed helper must still hand that argument to T(), directly or by
+forwarding it to another listed helper. One that stops is UNVERIFIED, not
+silently trusted. Write a new helper of this shape and its strings turn up
+ORPHANED until you list it — noisy on purpose. The alternative is what this
+file exists to prevent: a translation that quietly stopped rendering.
 
 Getting the Spanish written
 ---------------------------
@@ -82,11 +102,32 @@ JS_CALL = re.compile(r"\bTF?\(\s*'((?:[^'\\]|\\.)*)'")
 JS_TERNARY = re.compile(r"\bTF?\(\s*[^)]*?\?\s*'((?:[^'\\]|\\.)*)'\s*:\s*'((?:[^'\\]|\\.)*)'")
 RAZOR_CALL = re.compile(r'(?:@L|\bL|\b_t)\s*(?:\[|\.T\()\s*"((?:[^"\\]|\\.)*)"')
 
-# Every literal in the file, used only to decide whether a catalog entry is
-# still referenced somehow — robust to call shapes this script cannot parse
-# (a key passed through a helper, built in a ternary, held in a variable).
+# C# picks the key with a ternary in one place, and will again:
+#     T(OtherCode == Lang.Spanish ? "Switch to Spanish" : "Switch to English")
+CS_TERNARY = re.compile(
+    r'(?:@L\[|\bL\[|\b_t\[|\bL\.T\(|\bT\()'
+    r'\s*[^;\n]*?\?\s*"((?:[^"\\]|\\.)*)"\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+# Every literal in the file, used by the unwrapped-English sweep.
 ANY_JS_LITERAL = re.compile(r"'((?:[^'\\\n]|\\.)*)'")
-ANY_CS_LITERAL = re.compile(r'"((?:[^"\\\n]|\\.)*)"')
+
+# Helpers that translate an argument on their caller's behalf, so the literal
+# at that argument is a catalog key even though no T() encloses it:
+# (function, file relative to web/Foundation.Web, argument index).
+# verify_dynamic() re-checks each line against the source before the call sites
+# behind it are trusted.
+#
+# showDemoTicket earns its line by anchoring showComplete: the literal is
+# written at showComplete('Weigh In', ...) and translated one hop later.
+# Deliberately NOT listed: row() in the office views, same shape, no
+# translation — those screens are English by design.
+DYNAMIC_CALLS = [
+    ("dtRow",          "Views/Kiosk/Index.cshtml", 0),
+    ("showDemoTicket", "Views/Kiosk/Index.cshtml", 0),
+    ("showComplete",   "Views/Kiosk/Index.cshtml", 0),
+]
+
+ARG_LITERAL = re.compile(r"""^'((?:[^'\\]|\\.)*)'$|^"((?:[^"\\]|\\.)*)"$""")
 
 
 def unescape_js(s):
@@ -119,20 +160,176 @@ def source_files():
 
 
 def scan(files):
-    """(explicit call-site keys -> files, every literal seen anywhere)"""
-    calls, literals = {}, set()
+    """Explicit call-site keys -> the files that reference them."""
+    calls = {}
     for path in files:
         src = read(path)
         rel = os.path.relpath(path, REPO)
         found = [unescape_js(m) for m in JS_CALL.findall(src)]
         for a, b in JS_TERNARY.findall(src):
             found += [unescape_js(a), unescape_js(b)]
+        for a, b in CS_TERNARY.findall(src):
+            found += [unescape_cs(a), unescape_cs(b)]
         found += [unescape_cs(m) for m in RAZOR_CALL.findall(src)]
         for key in found:
             calls.setdefault(key, set()).add(rel)
-        literals.update(unescape_js(m) for m in ANY_JS_LITERAL.findall(src))
-        literals.update(unescape_cs(m) for m in ANY_CS_LITERAL.findall(src))
-    return calls, literals
+    return calls
+
+
+# --- dynamic call sites ----------------------------------------------------
+
+def mask(src):
+    """src with string bodies and comments blanked, positions preserved.
+
+    Brace and paren matching runs on this copy so a '{' inside a string or a
+    ')' inside a comment cannot throw the count off; the offsets it returns
+    still index the real source.
+    """
+    out = list(src)
+    i, n = 0, len(src)
+    while i < n:
+        c = src[i]
+        if c in "'\"`":
+            j = i + 1
+            while j < n and src[j] != c:
+                j += 2 if src[j] == "\\" else 1
+            for k in range(i, min(j + 1, n)):
+                out[k] = " "
+            i = j + 1
+        elif src.startswith("//", i):
+            j = src.find("\n", i)
+            j = n if j < 0 else j
+            for k in range(i, j):
+                out[k] = " "
+            i = j
+        elif src.startswith("/*", i):
+            j = src.find("*/", i)
+            j = n if j < 0 else j + 2
+            for k in range(i, j):
+                out[k] = " "
+            i = j
+        else:
+            i += 1
+    return "".join(out)
+
+
+def find_function(src, masked, name):
+    """(parameter names, body source) for `function name(...) {...}`, or None."""
+    m = re.search(r"\bfunction\s+" + re.escape(name) + r"\s*\(([^)]*)\)\s*\{", masked)
+    if not m:
+        return None
+    params = [p.strip() for p in src[m.start(1):m.end(1)].split(",") if p.strip()]
+    open_brace, depth = m.end() - 1, 0
+    for i in range(open_brace, len(masked)):
+        if masked[i] == "{":
+            depth += 1
+        elif masked[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return params, src[open_brace + 1:i]
+    return params, src[open_brace + 1:]
+
+
+def split_args(src, masked, open_paren):
+    """Source of each argument of the call whose '(' sits at open_paren."""
+    args, depth, start = [], 0, open_paren + 1
+    for i in range(open_paren, len(masked)):
+        c = masked[i]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+            if depth == 0:
+                args.append(src[start:i])
+                return [a.strip() for a in args]
+        elif c == "," and depth == 1:
+            args.append(src[start:i])
+            start = i + 1
+    return []
+
+
+def call_sites(src, masked, name):
+    """Argument lists of every call to `name` that is not its declaration."""
+    for m in re.finditer(r"\b" + re.escape(name) + r"\s*\(", masked):
+        if re.search(r"\bfunction\s+$", masked[:m.start()]):
+            continue
+        yield split_args(src, masked, m.end() - 1)
+
+
+def verify_dynamic():
+    """Which DYNAMIC_CALLS lines the source still supports, and why not.
+
+    A helper passes verification when the named argument reaches T() in its
+    own body, or when it is forwarded — at the matching position — to another
+    helper that passes. The forwarding case is resolved to a fixed point, so a
+    chain of any depth works as long as every hop is listed.
+    """
+    decls, broken = {}, {}
+    for name, rel, idx in DYNAMIC_CALLS:
+        path = os.path.join(WEB, *rel.split("/"))
+        if not os.path.exists(path):
+            broken[(name, idx)] = f"{rel} no longer exists"
+            continue
+        src = read(path)
+        found = find_function(src, mask(src), name)
+        if not found:
+            broken[(name, idx)] = f"no function {name}(...) in {rel}"
+            continue
+        params, body = found
+        if idx >= len(params):
+            broken[(name, idx)] = (
+                f"{name}() in {rel} takes {len(params)} argument(s), "
+                f"so there is no #{idx} to translate")
+            continue
+        decls[(name, idx)] = (params[idx], body, rel)
+
+    verified, changed = set(), True
+    while changed:
+        changed = False
+        for key, (param, body, _rel) in decls.items():
+            if key in verified:
+                continue
+            masked = mask(body)
+            direct = re.search(
+                r"\bTF?\(\s*" + re.escape(param) + r"\s*[,)]", masked)
+            if direct or forwards(body, masked, param, verified):
+                verified.add(key)
+                changed = True
+
+    for key, (param, body, rel) in decls.items():
+        if key not in verified:
+            broken[key] = (f"{key[0]}() in {rel} no longer passes its argument "
+                           f"#{key[1]} ({param}) to T()")
+    return verified, broken
+
+
+def forwards(body, masked, param, verified):
+    """True if body hands `param` to an already-verified helper's slot."""
+    for name, idx in verified:
+        for args in call_sites(body, masked, name):
+            if idx < len(args) and args[idx] == param:
+                return True
+    return False
+
+
+def dynamic_keys(verified):
+    """Literal arguments passed to a verified helper -> the files doing so."""
+    keys = {}
+    for name, rel, idx in DYNAMIC_CALLS:
+        if (name, idx) not in verified:
+            continue
+        path = os.path.join(WEB, *rel.split("/"))
+        src = read(path)
+        for args in call_sites(src, mask(src), name):
+            if idx >= len(args):
+                continue
+            m = ARG_LITERAL.match(args[idx])
+            if not m:
+                continue          # a runtime value, not a catalog key
+            single, double = m.groups()
+            key = unescape_js(single) if single is not None else unescape_cs(double)
+            keys.setdefault(key, set()).add(os.path.relpath(path, REPO))
+    return keys
 
 
 # --- unwrapped-English heuristic -------------------------------------------
@@ -274,10 +471,15 @@ def main():
     args = parser.parse_args()
 
     pairs, catalog_keys, dupes = load_catalog()
-    calls, literals = scan(source_files())
+    calls = scan(source_files())
+
+    verified, broken = verify_dynamic()
+    dynamic = dynamic_keys(verified)
+    for key, files in dynamic.items():
+        calls.setdefault(key, set()).update(files)
 
     missing = {k: v for k, v in calls.items() if k not in catalog_keys}
-    orphaned = sorted(catalog_keys - literals)
+    orphaned = sorted(catalog_keys - set(calls))
 
     if args.prompt:
         return emit_prompt(pairs, missing)
@@ -285,10 +487,19 @@ def main():
     unwrapped = sweep_unwrapped(catalog_keys)
 
     print(f"catalog:    {len(pairs)} entries")
-    print(f"call sites: {len(calls)} distinct strings")
+    print(f"call sites: {len(calls)} distinct strings "
+          f"({len(dynamic)} of them through a helper in DYNAMIC_CALLS)")
     print()
 
     failed = False
+
+    if broken:
+        failed = True
+        print(f"UNVERIFIED ({len(broken)}) — DYNAMIC_CALLS no longer matches the code.")
+        print("Until this is fixed the strings behind these helpers are unchecked:")
+        for (name, idx), why in sorted(broken.items()):
+            print(f"    {name}() arg #{idx}: {why}")
+        print()
 
     if dupes:
         failed = True
@@ -310,7 +521,8 @@ def main():
         failed = True
         print(f"ORPHANED ({len(orphaned)}) — in the catalog, referenced nowhere.")
         print("Usually the other half of a reworded string: update the key to match")
-        print("the new English text, or delete the entry if the string is gone.")
+        print("the new English text, or delete the entry if the string is gone. If")
+        print("the key is reached through a helper, add the helper to DYNAMIC_CALLS.")
         for k in orphaned:
             print(f'    ["{k}"]')
         print()

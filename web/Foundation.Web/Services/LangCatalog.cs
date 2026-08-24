@@ -33,14 +33,11 @@ public static class LangCatalog
         ["Location"] = "Ubicación",
         ["Destination"] = "Destino",
         ["Bin"] = "Silo",
-        ["Notes"] = "Notas",
         ["Note"] = "Nota",
         ["Ticket"] = "Boleta",
         ["Gross"] = "Bruto",
         ["Tare"] = "Tara",
         ["Net"] = "Neto",
-        ["Scale"] = "Báscula",
-        ["Date"] = "Fecha",
         ["Time In"] = "Hora de Entrada",
         ["Time Out"] = "Hora de Salida",
         ["Weighed In"] = "Peso de Entrada",
@@ -312,7 +309,6 @@ public static class LangCatalog
         // layouts the print agents render are customer-editable files and are
         // deliberately not touched here — a physical ticket keeps whatever
         // wording the site set up in the ticket designer.
-        ["Print"] = "Imprimir",
         ["Ticket Preview"] = "Vista Previa de la Boleta",
         ["Kiosk Ticket"] = "Boleta del Kiosco",
         ["Back to Completed Trucks"] = "Volver a Camiones Completados",
@@ -332,7 +328,6 @@ public static class LangCatalog
         ["Net Weight:"] = "Peso Neto:",
 
         // ===== LANGUAGE TOGGLE =====
-        ["Language"] = "Idioma",
         ["Switch to English"] = "Cambiar a inglés",
         ["Switch to Spanish"] = "Cambiar a español",
     };
