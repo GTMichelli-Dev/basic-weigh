@@ -419,6 +419,7 @@ FodyWeavers.xsd
 
 # Deploy build artifacts
 deploy/out/
+deploy/out.stale-*/
 deploy/out-pi/
 deploy/*.tar.gz
 

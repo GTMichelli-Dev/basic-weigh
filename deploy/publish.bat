@@ -9,8 +9,34 @@ set "ROOT_DIR=%SCRIPT_DIR%.."
 set "OUT_DIR=%SCRIPT_DIR%out"
 
 echo ==^> Cleaning previous publish...
-if exist "%OUT_DIR%" rd /s /q "%OUT_DIR%"
+if exist "%OUT_DIR%" (
+    rd /s /q "%OUT_DIR%" 2>nul
+
+    REM One stuck file is enough to fail the whole rd — a stale handle, or a
+    REM file left delete-pending by an interrupted publish, which Windows then
+    REM reports as "Access is denied" on every subsequent open. The old tree
+    REM survives, and dotnet publish fails several screens later on MSB3021
+    REM instead, which reads like a build error rather than a cleanup problem.
+    REM Renaming the directory never opens the stuck file, so it still works.
+    if exist "%OUT_DIR%" (
+        set "STALE=%OUT_DIR%.stale-%RANDOM%"
+        move "%OUT_DIR%" "!STALE!" >nul 2>&1
+        if exist "%OUT_DIR%" (
+            echo ERROR: Could not clear "%OUT_DIR%".
+            echo        Something is holding a file open in it. Close anything
+            echo        running from that folder, or reboot, then re-run.
+            exit /b 1
+        )
+        echo   WARNING: the old publish could not be deleted - moved aside to
+        echo            !STALE!
+        echo            Delete that folder later; a reboot frees the stuck file.
+    )
+)
 mkdir "%OUT_DIR%\foundation"
+if errorlevel 1 (
+    echo ERROR: Could not create "%OUT_DIR%\foundation".
+    exit /b 1
+)
 
 echo ==^> Publishing Foundation.Web (linux-x64, self-contained)...
 dotnet publish "%ROOT_DIR%\web\Foundation.Web\Foundation.Web.csproj" -c Release -r linux-x64 --self-contained true -o "%OUT_DIR%\foundation" /p:PublishSingleFile=false
