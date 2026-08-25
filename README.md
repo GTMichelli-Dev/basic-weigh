@@ -465,6 +465,7 @@ The Pi agent's `appsettings.json` (ServerUrl, PrinterName, PrinterId) is preserv
 | `/opt/foundation/` | Application files |
 | `/opt/foundation/Foundation.db` | SQLite database (preserved on updates) |
 | `/opt/foundation/Reports/` | Custom ticket templates (preserved on updates) |
+| `/opt/foundation/App_Data/keys` | Data Protection key ring (preserved on updates) — decrypts the saved SMTP password |
 | `/etc/systemd/system/foundation.service` | Systemd service file |
 | `/etc/nginx/sites-available/default` | Nginx reverse proxy config |
 | `/etc/letsencrypt/` | SSL certificates (auto-renewed) |
@@ -524,6 +525,10 @@ The SMTP password is encrypted with ASP.NET Data Protection before it is stored;
 lives in `App_Data/keys` next to the app and is never committed. The password is never sent back
 to the browser — the box shows "Saved — type to replace" and only overwrites when retyped. Moving
 the database to a different server without `App_Data/keys` means re-entering the password.
+
+Deploys preserve it: `install.sh` excludes `App_Data/` from the `rsync --delete` sweep that
+replaces the app files, so the saved password survives an update. Lose that directory and the
+operator has to retype the SMTP password after every deploy.
 
 **Scheduled Reports** attach an `.xlsx` of what was weighed:
 
