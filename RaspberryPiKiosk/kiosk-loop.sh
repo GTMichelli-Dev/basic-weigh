@@ -56,7 +56,7 @@ trap cleanup EXIT INT TERM
 probe() {
     # Returns 0 if KIOSK_URL responds with a non-5xx status within 5s.
     local code
-    code="$(curl --silent --max-time 5 --output /dev/null --write-out '%{http_code}' "$KIOSK_URL" 2>/dev/null || echo 000)"
+    code="$(curl --silent --max-time 15 --output /dev/null --write-out '%{http_code}' "$KIOSK_URL" 2>/dev/null || echo 000)"
     [[ "$code" =~ ^[123] ]]
 }
 
