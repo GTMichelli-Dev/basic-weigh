@@ -24,6 +24,7 @@ Foundation is a web-based truck scale management application for weighing inboun
   - [Application Settings](#application-settings)
   - [Setup Page](#setup-page)
   - [Email Reports](#email-reports)
+  - [Finding the Serial Port](#finding-the-serial-port)
   - [Scales (multi-scale)](#scales-multi-scale)
   - [Custom Fields & Ticket Printing](#custom-fields--ticket-printing)
   - [Prox Card Weighing](#prox-card-weighing)
@@ -554,6 +555,63 @@ several rules can match the same load and each sends its own email. Loads are pi
 that runs every minute, so a send can never slow down or fail a weighment, and a site that is
 offline retries when its uplink returns rather than losing the email.
 
+### Finding the Serial Port
+
+The Scale Reader and RFID Card Reader services each need to be told which port
+their hardware is on. Run this on the machine the cable is plugged into:
+
+| Platform | Command |
+|----------|---------|
+| Pi / Linux | [`bash scripts/list-serial-ports.sh`](scripts/list-serial-ports.sh) |
+| Windows | [`.\scripts\list-serial-ports.ps1`](scripts/list-serial-ports.ps1) |
+
+Both list the ports with the adapter behind each one — vendor, model and serial
+number — so two identical USB-serial cables can be told apart. Add `--plain`
+(Linux) or `-Plain` (Windows) for bare port names in a script. The Pi copy can
+be run without checking out the repo there:
+
+```bash
+ssh admin@<pi-ip> 'bash -s' < scripts/list-serial-ports.sh
+```
+
+Each service also serves its own list at `/api/serialports` once installed —
+`http://localhost:5220/api/serialports` (scale reader) and
+`http://localhost:5230/api/serialports` (RFID reader), from the machine itself.
+
+**On a Pi, configure the `by-id` name, not `ttyUSB0`.** The kernel hands out
+ttyUSB numbers in enumeration order, so adding a second adapter — or just
+replugging this one — can silently move the scale to `ttyUSB1`. The names under
+`/dev/serial/by-id` are built from the adapter's own vendor, model and serial
+number, so they always point at the same physical cable:
+
+```bash
+ls -l /dev/serial/by-id/
+```
+
+```
+lrwxrwxrwx 1 root root 13 Aug 24 20:00 usb-FTDI_FT232R_USB_UART_A9U6VOHB-if00-port0 -> ../../ttyUSB0
+```
+
+That scale is on `ttyUSB0` today. Configure the full
+`/dev/serial/by-id/usb-FTDI_FT232R_USB_UART_A9U6VOHB-if00-port0` path as the
+port instead and it stays correct across reboots and replugs. The reader
+services offer these names in the setup page's port suggestions — sorted above
+the `/dev/tty*` entries — so on a Pi the first suggestion is the safe one.
+
+Windows needs no equivalent: it pins a COM number to the adapter's serial
+number in the registry, so that cable keeps COM3 wherever it is plugged in.
+
+If a port doesn't show up:
+
+- **Linux** — `dmesg | tail` straight after plugging in says whether the kernel
+  bound a driver. If the port is listed but won't open, the login needs the
+  `dialout` group (`sudo usermod -aG dialout $USER`, then log out and back in) —
+  the script flags this for you. The Pi's own GPIO UART (`/dev/ttyAMA0`) also
+  needs `enable_uart=1` and the serial console released via `raspi-config`.
+- **Windows** — an adapter with no driver sits under *Other devices* in Device
+  Manager and never gets a COM number. Adapters that are installed but unplugged
+  keep their number reserved and reappear on the list when plugged back in.
+
 ### Scales (multi-scale)
 
 The **Scales** page (System → Options → Scales) manages the named site scales:
@@ -950,7 +1008,7 @@ runs only the ones it needs:
 | Service | Repo | Purpose |
 |---------|------|---------|
 | Scale Reader | [scale-reader-service](https://github.com/GTMichelli-Dev/scale-reader-service) | Weight from indicators (TCP / RS-232) |
-| Web Print | [web-print-service](https://github.com/GTMichelli-Dev/web-print-service) | Ticket printing via CUPS |
+| Web Print | [web-print-service](https://github.com/GTMichelli-Dev/web-print-service) | Ticket printing — CUPS on Linux/Pi, Windows print on a PC |
 | Camera Capture | [camera-capture-service](https://github.com/GTMichelli-Dev/camera-capture-service) | Ticket images |
 | QB Sync | [qb-sync-service](https://github.com/GTMichelli-Dev/qb-sync-service) | QuickBooks export |
 | RFID Reader | [`RfidReaderService/`](RfidReaderService/README.md) | Prox card reads (RS-232) — not yet split into its own repo |
