@@ -139,7 +139,7 @@ All of these run on the Pi — usually over SSH.
 After install, the config file is:
 
 ```
-~/.config/foundation-kiosk/config
+nano ~/.config/foundation-kiosk/config
 ```
 
 ```bash
