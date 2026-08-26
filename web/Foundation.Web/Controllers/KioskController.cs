@@ -339,6 +339,27 @@ public class KioskController : Controller
             }
         }
         bool tareApplied = truck?.RetainedTare.HasValue == true;
+
+        // The driver may reset a stored tare instead of finishing the load on
+        // it — the kiosk asks whenever the truck has one. Clearing it here is
+        // what makes the reset stick: the ticket stays open, and this visit's
+        // real weigh-out captures a fresh tare. A null answer means the page
+        // never asked (an older kiosk), which keeps the automatic behaviour.
+        //
+        // Gated per source, and re-checked here rather than trusted from the
+        // page: a card presentation and a keyed weigh-in can be allowed to
+        // re-tare independently, and a stale kiosk cached from before the gate
+        // was turned off must not be able to throw a tare away.
+        var mayResetTare = card != null ? setup.AllowTareResetCard : setup.AllowTareResetKiosk;
+        if (tareApplied && request.UseRetainedTare == false && mayResetTare)
+        {
+            _log.LogInformation("RetainedTare: kiosk reset tare for {TruckId}/{Carrier} (was {Tare} lb)",
+                truck!.TruckId, truck.CarrierName, truck.RetainedTare);
+            truck.RetainedTare = null;
+            truck.RetainedTareUpdated = null;
+            tareApplied = false;
+        }
+
         var now = DateTime.UtcNow;
 
         // For a retained-tare auto-completion, DateIn represents when the truck
@@ -414,6 +435,9 @@ public class KioskController : Controller
         {
             await _hub.Clients.All.SendAsync("TicketCompleted",
                 new { ticket = ticketNumber, type = "weighout" });
+            // The load is finished and the truck is leaving, so the gate opens
+            // even though this was posted as a weigh-in.
+            await GateDispatch.OpenForTicket(_hub, _db, _log, request.ScaleName, ticketNumber, "weighout");
         }
         else
         {
@@ -518,6 +542,7 @@ public class KioskController : Controller
 
         // Notify all clients that a ticket was completed
         await _hub.Clients.All.SendAsync("TicketCompleted", new { ticket = transaction.Ticket, type = "weighout" });
+        await GateDispatch.OpenForTicket(_hub, _db, _log, request.ScaleName, transaction.Ticket, "weighout");
 
         // Camera capture (outbound) — same convention as the admin web flow.
         var outSetup = _setupCache.Get();
@@ -739,6 +764,11 @@ public class KioskController : Controller
         /// If not set: demo mode uses "demo:KioskPrinter", normal mode uses inbound printer from Setup.
         /// </summary>
         public string? PrinterId { get; set; }
+        /// <summary>The driver's answer to "finish now on this truck's stored
+        /// empty weight?". True finishes the load in one weighment, false
+        /// resets the stored tare and opens a normal ticket to weigh out, and
+        /// null means the page never asked (older kiosks apply it silently).</summary>
+        public bool? UseRetainedTare { get; set; }
     }
 
     public class KioskWeighOutRequest

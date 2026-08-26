@@ -89,10 +89,21 @@ jobs:
             -c Release -r win-x64 --self-contained true \
             -o out/rfid-win/app -p:PublishSingleFile=false
 
+      # ---- Gate controller service (Pi only) ---------------------------------
+      # arm64 only, deliberately: this service exists to drive GPIO, and there
+      # is no GPIO header on a Windows scale house PC.
+      - name: Publish GateControllerService (linux-arm64)
+        run: |
+          dotnet publish GateControllerService/GateControllerService.csproj \
+            -c Release -r linux-arm64 --self-contained true \
+            -o out/gate-arm64/app -p:PublishSingleFile=false
+          cp GateControllerService/deploy/install.sh out/gate-arm64/
+
       - name: Assemble packages
         run: |
           set -euo pipefail
           chmod +x out/web-x64/install.sh out/web-arm64/install.sh out/rfid-arm64/install.sh
+          chmod +x out/gate-arm64/install.sh out/gate-arm64/app/GateControllerService
           chmod +x out/web-x64/foundation/Foundation.Web out/web-arm64/foundation/Foundation.Web
           chmod +x out/kiosk-arm64/app/KioskPrintAgent out/rfid-arm64/app/RfidReaderService
 
@@ -100,9 +111,10 @@ jobs:
           tar -czf foundation-web-linux-arm64.tar.gz   -C out/web-arm64 .
           tar -czf kiosk-print-agent-linux-arm64.tar.gz -C out/kiosk-arm64 .
           tar -czf rfid-reader-linux-arm64.tar.gz      -C out/rfid-arm64 .
+          tar -czf gate-controller-linux-arm64.tar.gz  -C out/gate-arm64 .
           (cd out/rfid-win && zip -qr ../../rfid-reader-win-x64.zip .)
 
-          ls -lh foundation-web-*.tar.gz kiosk-*.tar.gz rfid-*
+          ls -lh foundation-web-*.tar.gz kiosk-*.tar.gz rfid-* gate-*.tar.gz
 
       - name: Check the packages
         run: |
@@ -115,6 +127,8 @@ jobs:
           test -f out/kiosk-arm64/app/KioskPrintAgent       || { echo "kiosk binary missing";     exit 1; }
           test -f out/rfid-arm64/app/RfidReaderService      || { echo "rfid binary missing";      exit 1; }
           test -f out/rfid-win/app/RfidReaderService.exe    || { echo "rfid exe missing";         exit 1; }
+          test -f out/gate-arm64/app/GateControllerService  || { echo "gate binary missing";      exit 1; }
+          test -f out/gate-arm64/install.sh                 || { echo "gate installer missing";   exit 1; }
 
           # A database must never ship - it would overwrite a site's own data.
           if find out -name "*.db" -o -name "*.db-wal" -o -name "*.db-shm" | grep -q .; then
@@ -128,6 +142,8 @@ jobs:
             || { echo "::error::arm64 web build is not an aarch64 binary"; exit 1; }
           file out/web-x64/foundation/Foundation.Web | grep -q "x86-64" \
             || { echo "::error::x64 web build is not an x86-64 binary"; exit 1; }
+          file out/gate-arm64/app/GateControllerService | grep -q "ARM aarch64" \
+            || { echo "::error::gate build is not an aarch64 binary"; exit 1; }
           echo "Packages OK"
 
       - name: Publish release
@@ -163,6 +179,21 @@ jobs:
           \`rfid-reader-linux-arm64.tar.gz\` (Pi) — extract and run \`install.sh\`.
           \`rfid-reader-win-x64.zip\` (weigh PC).
 
+          ## Gate controller service (Pi)
+
+          Drives a gate relay and/or a light when a ticket completes, releasing
+          once the truck drives off the scale or a timeout expires.
+
+          \`\`\`
+          curl -fsSL -o gate.tar.gz https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/gate-controller-linux-arm64.tar.gz
+          mkdir -p /tmp/gcs && tar -xzf gate.tar.gz -C /tmp/gcs
+          bash /tmp/gcs/install.sh https://your-web-app-url --service-id north-gate
+          \`\`\`
+
+          Then add the gates wired to that Pi at \`http://<pi>:5240/\`, and set
+          each Scale's **Gate** on the web app to \`<service-id>:<gate-id>\`.
+          Pi only — the service exists to drive GPIO.
+
           ## Scale reader service
 
           Released separately, from its own repo:
@@ -177,4 +208,5 @@ jobs:
             foundation-web-linux-arm64.tar.gz \
             kiosk-print-agent-linux-arm64.tar.gz \
             rfid-reader-linux-arm64.tar.gz \
-            rfid-reader-win-x64.zip
+            rfid-reader-win-x64.zip \
+            gate-controller-linux-arm64.tar.gz

@@ -117,6 +117,25 @@ public class ScaleHub : Hub
         await Clients.Group("QBSyncClients").SendAsync("SendTicketsToQB", tickets);
     }
 
+    // ===== GATE CONTROLLER SERVICE =====
+    // A Pi driving a gate relay and/or a light off its GPIO header. Commands go
+    // to one box's group the way print and camera commands do; the service gets
+    // the weight it needs to close the gate from the ordinary ScaleWeight
+    // broadcast, so there is nothing to subscribe to for that.
+
+    public async Task JoinGateGroup(string serviceId = "default")
+    {
+        await Groups.AddToGroupAsync(Context.ConnectionId, "GateClients");
+        await Groups.AddToGroupAsync(Context.ConnectionId, $"Gate_{serviceId}");
+    }
+
+    /// <summary>Announcement from a gate service listing the gates it owns, so
+    /// the scale setup screen can offer them.</summary>
+    public async Task GateServiceReady(object announcement)
+    {
+        await Clients.All.SendAsync("GateServiceReady", announcement);
+    }
+
     // ===== CAMERA SERVICE =====
 
     public async Task JoinCameraGroup(string serviceId = "default")
@@ -394,8 +413,12 @@ public class ScaleHub : Hub
                     bool motion = json.TryGetProperty("motion", out var m) && m.GetBoolean();
                     bool ok = json.TryGetProperty("ok", out var o) && o.GetBoolean();
                     string status = json.TryGetProperty("status", out var st) ? st.GetString() ?? "Unknown" : "Unknown";
+                    // Absent on readers older than the end-detector support, and
+                    // on any scale with no detectors wired. Missing means "on
+                    // the scale", so those installs are never blocked.
+                    bool onScale = !json.TryGetProperty("onScale", out var os) || os.ValueKind != System.Text.Json.JsonValueKind.False;
 
-                    weightStore.Update(scaleId, serviceId, weight, motion, ok, status);
+                    weightStore.Update(scaleId, serviceId, weight, motion, ok, status, onScale: onScale);
                 }
             }
         }

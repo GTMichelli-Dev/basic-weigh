@@ -227,14 +227,33 @@ public static class LangCatalog
         ["Confirm & Weigh In"] = "Confirmar y Pesar Entrada",
         ["Confirm & Weigh Out"] = "Confirmar y Pesar Salida",
 
+        // ===== SHARED: on-scale end detectors =====
+        // Shown when a detector at one end of the deck is blocked, meaning the
+        // truck is hanging off the platform and the reading is not the whole
+        // vehicle. Sites without detectors never see these.
+        ["NOT ON SCALE"] = "NO ESTÁ EN LA BÁSCULA",
+        ["The truck is not all the way on the scale"] = "El camión no está completamente en la báscula",
+        ["The truck is not all the way on the scale — pull forward."] = "El camión no está completamente en la báscula — avance.",
+
+        // ===== KIOSK: retained tare =====
+        // The two answers to the Stored Tare prompt. "Stored Tare" itself is a
+        // shared prompt title above.
+        ["Finish now — use stored {0} lb"] = "Terminar ahora — usar los {0} lb guardados",
+        ["Reset tare — weigh out on the scale"] = "Restablecer la tara — pesar salida en la báscula",
+        [" (from {0})"] = " (del {0})",
+
         // ===== MOBILE: retained tare =====
         ["Reuse stored tare?"] = "¿Usar la tara guardada?",
         ["This truck has a stored empty weight of {0}. Use it to close the load, or weigh the truck on the scale now?"] = "Este camión tiene un peso vacío guardado de {0}. ¿Usarlo para cerrar la carga, o pesar el camión en la báscula ahora?",
         ["This truck has a stored empty weight of {0}. Use it to close the load, or weigh the truck on the scale now ({1} lb)?"] = "Este camión tiene un peso vacío guardado de {0}. ¿Usarlo para cerrar la carga, o pesar el camión en la báscula ahora ({1} lb)?",
-        ["This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Otherwise the ticket stays open until you weigh out on the scale."] = "Este camión tiene un peso vacío guardado de {0}. Termine la carga ahora usándolo y no necesitará pesar salida. De lo contrario, la boleta queda abierta hasta que pese salida en la báscula.",
+        ["This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Resetting it clears that weight and keeps the ticket open until you weigh out on the scale."] = "Este camión tiene un peso vacío guardado de {0}. Termine la carga ahora usándolo y no necesitará pesar salida. Restablecerla borra ese peso y deja la boleta abierta hasta que pese salida en la báscula.",
         ["Use stored {0} lb"] = "Usar los {0} lb guardados",
         ["Weigh on scale"] = "Pesar en la báscula",
         ["Finish now"] = "Terminar ahora",
+        ["Reset tare"] = "Restablecer la tara",
+        // Shown instead of the two above when the site does not let phone
+        // drivers reset a tare: declining then skips it for this load only.
+        ["This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Otherwise the ticket stays open until you weigh out on the scale."] = "Este camión tiene un peso vacío guardado de {0}. Termine la carga ahora usándolo y no necesitará pesar salida. De lo contrario, la boleta queda abierta hasta que pese salida en la báscula.",
         ["Weigh out later"] = "Pesar salida después",
         ["Checking stored tare…"] = "Verificando la tara guardada…",
         ["{0} lb (from {1})"] = "{0} lb (del {1})",

@@ -384,6 +384,33 @@
                                     </a>
                                 </div>
                             </div>
+                            @* Who may throw a stored tare away. Off means that source stops
+                               offering the choice — the kiosk and card flows then apply the
+                               tare automatically, and the phone still lets a driver skip it
+                               for one load without clearing it. *@
+                            <div class="row g-2 mb-2" id="tareResetGates" style="display: @(Model.UseRetainedTare ? "flex" : "none");">
+                                <div class="col-4">
+                                    <label asp-for="AllowTareResetKiosk" class="form-label mb-0 small"></label>
+                                    <select asp-for="AllowTareResetKiosk" class="form-select form-select-sm">
+                                        <option value="true">Yes</option>
+                                        <option value="false">No</option>
+                                    </select>
+                                </div>
+                                <div class="col-4">
+                                    <label asp-for="AllowTareResetMobile" class="form-label mb-0 small"></label>
+                                    <select asp-for="AllowTareResetMobile" class="form-select form-select-sm">
+                                        <option value="true">Yes</option>
+                                        <option value="false">No</option>
+                                    </select>
+                                </div>
+                                <div class="col-4">
+                                    <label asp-for="AllowTareResetCard" class="form-label mb-0 small"></label>
+                                    <select asp-for="AllowTareResetCard" class="form-select form-select-sm">
+                                        <option value="true">Yes</option>
+                                        <option value="false">No</option>
+                                    </select>
+                                </div>
+                            </div>
                             <div class="row g-2 mb-2">
                                 <div class="col-4">
                                     <label asp-for="UseBinInventory" class="form-label mb-0 small"></label>
@@ -1920,6 +1947,8 @@
         document.getElementById('retainedTareManageSection').style.display = on ? 'flex' : 'none';
         var autoClear = document.getElementById('autoClearStaleSection');
         if (autoClear) autoClear.style.display = on ? 'block' : 'none';
+        var resetGates = document.getElementById('tareResetGates');
+        if (resetGates) resetGates.style.display = on ? 'flex' : 'none';
         applyRetainedTareLocks(on);
     });
     // Apply on initial load too — covers the case where the page renders with

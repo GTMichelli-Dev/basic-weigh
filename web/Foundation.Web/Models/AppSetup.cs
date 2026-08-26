@@ -238,6 +238,32 @@ public class AppSetup
     public bool AutoClearStaleRetainedTare { get; set; } = true;
 
     /// <summary>
+    /// Whether a driver at the kiosk may reset a truck's stored tare — clearing
+    /// it and leaving the ticket open so the real weigh-out captures a fresh
+    /// one. Off means the kiosk never asks and the stored tare is applied
+    /// automatically, which is how Retained Tare behaved before the choice
+    /// existed. Only consulted when UseRetainedTare is on.
+    /// </summary>
+    [Display(Name = "Allow Tare Reset at the Kiosk")]
+    public bool AllowTareResetKiosk { get; set; } = true;
+
+    /// <summary>
+    /// Whether a driver on the phone page may reset a stored tare. Off still
+    /// lets them decline the tare for one load — the ticket stays open and they
+    /// weigh out on the scale — but the stored weight survives for next time.
+    /// </summary>
+    [Display(Name = "Allow Tare Reset on the Phone")]
+    public bool AllowTareResetMobile { get; set; } = true;
+
+    /// <summary>
+    /// Whether a prox-card weigh-in is asked about the stored tare at all. Off
+    /// keeps card presentations prompt-free the way they were before: the tare
+    /// applies automatically and the load closes in one weighment.
+    /// </summary>
+    [Display(Name = "Allow Tare Reset from a Card")]
+    public bool AllowTareResetCard { get; set; } = true;
+
+    /// <summary>
     /// HID / prox card weighing. When true: the Cards pages appear, a kiosk
     /// mapped to a card reader accepts card presentations, and the loader
     /// operator issues cards from a phone (Cards → Card Setup). When false,

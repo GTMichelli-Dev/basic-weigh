@@ -56,7 +56,7 @@ public class ScaleWeightStore
     /// Simulator entries (demo mode) pass noTimeout: their state is set by UI
     /// interactions, not a continuous feed, so staleness means nothing.
     /// </summary>
-    public void Update(string scaleId, string serviceId, int weight, bool motion, bool ok, string? status = null, bool noTimeout = false)
+    public void Update(string scaleId, string serviceId, int weight, bool motion, bool ok, string? status = null, bool noTimeout = false, bool onScale = true)
     {
         var key = $"{serviceId}:{scaleId}";
         _readings[key] = new ScaleReading
@@ -68,7 +68,8 @@ public class ScaleWeightStore
             Ok = ok,
             Status = status ?? (ok ? (motion ? "Motion" : "Ok") : "Error"),
             LastUpdate = DateTime.UtcNow,
-            NoTimeout = noTimeout
+            NoTimeout = noTimeout,
+            OnScale = onScale
         };
     }
 
@@ -111,7 +112,8 @@ public class ScaleWeightStore
                 Ok = false,
                 ComError = true,
                 Status = "COM Error",
-                LastUpdate = reading.LastUpdate
+                LastUpdate = reading.LastUpdate,
+                OnScale = true
             };
         }
         return reading;
@@ -128,5 +130,13 @@ public class ScaleWeightStore
         public string Status { get; set; } = "Unknown";
         public DateTime LastUpdate { get; set; }
         public bool NoTimeout { get; set; }
+
+        /// <summary>
+        /// False when an end detector says the truck is hanging off the deck.
+        /// Defaults true so every feed that says nothing about detectors — an
+        /// older reader service, a simulator, a scale with none wired — reads
+        /// as occupied and nothing is blocked.
+        /// </summary>
+        public bool OnScale { get; set; } = true;
     }
 }

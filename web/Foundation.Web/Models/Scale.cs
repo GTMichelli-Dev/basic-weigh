@@ -48,4 +48,13 @@ public class Scale
     [StringLength(100)]
     [Display(Name = "Outbound Printer")]
     public string? OutboundPrinterId { get; set; }
+
+    /// <summary>
+    /// Gate/light output to fire when a ticket completes on this scale, as
+    /// "serviceId:gateId" reported by a GateControllerService. Null means this
+    /// scale controls nothing, which is every site that has not wired a gate.
+    /// </summary>
+    [StringLength(100)]
+    [Display(Name = "Gate")]
+    public string? GateId { get; set; }
 }

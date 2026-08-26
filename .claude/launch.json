@@ -30,6 +30,12 @@
       "runtimeExecutable": "dotnet",
       "runtimeArgs": ["run", "--project", "ScaleReaderService"],
       "port": 5220
+    },
+    {
+      "name": "gatecontroller",
+      "runtimeExecutable": "dotnet",
+      "runtimeArgs": ["run", "--project", "GateControllerService"],
+      "port": 5240
     }
   ]
 }

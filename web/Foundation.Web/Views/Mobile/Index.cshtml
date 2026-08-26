@@ -621,6 +621,7 @@
         allowSkipBin: @(Model.AllowSkipBin.ToString().ToLower()),
         binCommodityLock: @(Model.BinCommodityLock.ToString().ToLower()),
         useRetainedTare: @(Model.UseRetainedTare.ToString().ToLower()),
+        allowTareReset: @(Model.AllowTareResetMobile.ToString().ToLower()),
         demoMode: @(Model.DemoMode.ToString().ToLower())
     };
 
@@ -775,7 +776,13 @@
 
     /// A weighment needs a truck actually on the scale and a healthy reading.
     function canWeigh() {
-        return !scaleData.error && scaleData.weight >= ON_SCALE_LB;
+        return !scaleData.error && scaleData.weight >= ON_SCALE_LB && !offScale();
+    }
+
+    /// An end detector says part of the truck is off the deck. Only an explicit
+    /// false counts — a scale with no detectors wired says nothing here.
+    function offScale() {
+        return scaleData.onScale === false;
     }
 
     function refreshActionButtons() {
@@ -787,15 +794,18 @@
         $('#btn-weighout').prop('disabled', !ready && !canCloseOnTare);
         $('#home-hint').text(scaleData.error
             ? T('Scale is not reporting — see the office.')
-            : (ready ? T('Ready. Tap Weigh In to start your load.')
-                     : T('Pull onto the scale, then tap Weigh In.')));
+            : (offScale() ? T('The truck is not all the way on the scale — pull forward.')
+                          : (ready ? T('Ready. Tap Weigh In to start your load.')
+                                   : T('Pull onto the scale, then tap Weigh In.'))));
         if (openTicket) {
             $('#open-hint').text(scaleData.error && !canCloseOnTare
                 ? T('Scale is not reporting — see the office.')
-                : (ready ? T('Ready. Tap Weigh Out to close this load.')
-                         : (canCloseOnTare
-                            ? T('Pull back onto the scale, or close on this truck’s stored tare.')
-                            : T('Pull back onto the scale when your load is done.'))));
+                : (offScale() && !canCloseOnTare
+                   ? T('The truck is not all the way on the scale — pull forward.')
+                   : (ready ? T('Ready. Tap Weigh Out to close this load.')
+                            : (canCloseOnTare
+                               ? T('Pull back onto the scale, or close on this truck’s stored tare.')
+                               : T('Pull back onto the scale when your load is done.')))));
         }
     }
 
@@ -1510,13 +1520,20 @@
             });
             return;
         }
+        // What declining means depends on the site's gate, so the wording has to
+        // follow it. With reset allowed the driver is discarding a number the
+        // next visit would have reused, and must be told; without it, declining
+        // only skips the tare for this load and the stored weight survives.
         showModal({
             title: T('Reuse stored tare?'),
-            text: TF('This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Otherwise the ticket stays open until you weigh out on the scale.',
+            text: cfg.allowTareReset
+                ? TF('This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Resetting it clears that weight and keeps the ticket open until you weigh out on the scale.',
+                     tareLine())
+                : TF('This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Otherwise the ticket stays open until you weigh out on the scale.',
                      tareLine()),
             okLabel: T('Finish now'),
             okClass: 'btn-green',
-            cancelLabel: T('Weigh out later'),
+            cancelLabel: cfg.allowTareReset ? T('Reset tare') : T('Weigh out later'),
             onOk: function () { useTareChoice = true; proceedWithWeighment(); },
             onCancel: function () { useTareChoice = false; proceedWithWeighment(); }
         });
@@ -1528,6 +1545,10 @@
     /// settle wait that follows.
     function captureBlocker() {
         if (scaleData.error) return T('Scale is not reporting — see the office.');
+        // Only an explicit false blocks: a feed that says nothing about end
+        // detectors (no sensors wired, an older reader service) is not a claim
+        // that the truck is off the deck.
+        if (scaleData.onScale === false) return T('The truck is not all the way on the scale — pull forward.');
         if (scaleData.motion) return T('Scale is still moving — wait for it to settle.');
         if (scaleData.weight < ON_SCALE_LB) return T('Pull onto the scale before weighing.');
         return null;

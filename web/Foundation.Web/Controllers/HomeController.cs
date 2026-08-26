@@ -74,6 +74,7 @@ public class HomeController : Controller
             error = r.Error,
             comError = r.ComError,
             status = r.Status,
+            onScale = r.OnScale,
             scaleDbId = r.ScaleDbId,
             scaleName = r.ScaleName
         });
@@ -103,7 +104,8 @@ public class HomeController : Controller
                 weight = r.Weight,
                 motion = r.Motion,
                 error = r.Error,
-                status = r.Status
+                status = r.Status,
+                onScale = r.OnScale
             };
         }).ToList());
     }
@@ -149,7 +151,8 @@ public class HomeController : Controller
 
         // Update the multi-scale weight store
         _weightStore.Update(scaleId, serviceId, request.Weight, request.Motion, !request.Error,
-            request.Error ? "Error" : (request.Motion ? "Motion" : "Ok"));
+            request.Error ? "Error" : (request.Motion ? "Motion" : "Ok"),
+            onScale: request.OnScale);
 
         // Check for pending print jobs (Scale mode only — RemotePrinter uses SignalR)
         if (setup.RemotePrintMode == "Scale" && _printQueue.TryDequeue(out var ticketId) && ticketId != null)
@@ -171,6 +174,13 @@ public class HomeController : Controller
         public int Weight { get; set; }
         public bool Motion { get; set; }
         public bool Error { get; set; }
+
+        /// <summary>
+        /// False when an end detector says the truck is not all the way on the
+        /// deck. Defaults true so every existing pusher — which sends no such
+        /// field — keeps weighing exactly as it does now.
+        /// </summary>
+        public bool OnScale { get; set; } = true;
     }
 
     public class SimulateRequest

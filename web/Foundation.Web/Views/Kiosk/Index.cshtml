@@ -974,6 +974,10 @@
         <div class="overlay-message">@L["Operation Cancelled"]</div>
         <div class="overlay-sub">@L["Scale Error"]</div>
     </div>
+    <div id="overlay-not-on-scale" class="overlay-screen overlay-yellow">
+        <div class="overlay-message">@L["Operation Cancelled"]</div>
+        <div class="overlay-sub">@L["The truck is not all the way on the scale"]</div>
+    </div>
     <div id="overlay-server-error" class="overlay-screen overlay-red">
         <div class="overlay-message">@L["Save Failed"]</div>
         <div class="overlay-sub" id="server-error-detail">@L["Server error. Please try again."]</div>
@@ -1053,6 +1057,8 @@
         allowSkipBin: @(Model.AllowSkipBin.ToString().ToLower()),
         binCommodityLock: @(Model.BinCommodityLock.ToString().ToLower()),
         useRetainedTare: @(Model.UseRetainedTare.ToString().ToLower()),
+        allowTareResetKiosk: @(Model.AllowTareResetKiosk.ToString().ToLower()),
+        allowTareResetCard: @(Model.AllowTareResetCard.ToString().ToLower()),
         demoMode: @(Model.DemoMode.ToString().ToLower()),
         header1: '@Html.Raw((Model.Header1 ?? "").Replace("'", "\\'"))',
         header2: '@Html.Raw((Model.Header2 ?? "").Replace("'", "\\'"))',
@@ -1098,6 +1104,12 @@
     var cardValues = {};          // field values the card supplies
     var lastCardRead = { number: null, at: 0 }; // de-dup for a reader that repeats while the card is held
     var completedCardMessage = null; // "keep the card" / "hand it back" line for the complete screen
+
+    // ===== RETAINED TARE STATE =====
+    // The stored tare offered to the driver this flow, and the labels of the
+    // two answers. The kiosk never sends a tare value — only whether to finish
+    // on the stored one or reset it; the server holds the number.
+    var tareOffer = null;         // { tare, useLabel, resetLabel } or null
 
     // ===== ELEMENTS =====
     var $weightDisplay = $('#weight-display');
@@ -1247,6 +1259,7 @@
         activeCardNumber = cardNumber;
         cardValues = result.values || {};
         weighinData = {};
+        tareOffer = null;
         Object.keys(cardValues).forEach(function (k) { weighinData[k] = cardValues[k]; });
 
         startOperationTracking();
@@ -1256,12 +1269,12 @@
                 activeFlow = 'weighout';
                 weighoutTicket = result.ticket;
                 promptQueue = filterPromptsForCard(
-                    buildPromptsForDirection('outbound')
+                    buildPromptsForDirection('outbound', true)
                         .filter(function (p) { return p.key !== 'carrier' && p.key !== 'truck'; }));
             } else {
                 activeFlow = 'weighin';
                 weighoutTicket = null;
-                promptQueue = filterPromptsForCard(buildPromptsForDirection('inbound'));
+                promptQueue = filterPromptsForCard(buildPromptsForDirection('inbound', true));
             }
 
             promptIndex = 0;
@@ -1331,6 +1344,24 @@
         $('body').append(warningHtml);
     }
 
+    /// A detector at one end of the deck says the truck is not all the way on.
+    /// Undefined on a feed that knows nothing about detectors — a simulator, an
+    /// older reader service, a scale with none wired — and those must never
+    /// block, so only an explicit false counts.
+    function offScale() {
+        return scaleData.onScale === false;
+    }
+
+    /// Whether the kiosk should be armed for a weighment or sitting idle. Every
+    /// path that lands back on the resting screen goes through here so a truck
+    /// hanging off an end can never leave the kiosk showing PRESS ENTER TO
+    /// WEIGH — including the recovery out of a scale error, which used to look
+    /// only at the weight.
+    function readyOrIdle() {
+        return (scaleData.weight >= WEIGHT_THRESHOLD && !scaleData.error && !offScale())
+            ? 'ready' : 'idle';
+    }
+
     // ===== WEIGHT DISPLAY =====
     function updateWeightDisplay() {
         if (scaleData.error) {
@@ -1340,6 +1371,14 @@
             // Use CSS classes (not inline color) so light/dark themes can theme
             // the status text per-state — yellow on yellow was unreadable.
             $scaleStatus.removeClass('status-motion').addClass('status-error').text(T('ERROR'));
+        } else if (offScale()) {
+            // The weight is real but it is not the whole truck, so it is shown
+            // struck through in the error style rather than hidden — the driver
+            // needs to see it move as they pull forward.
+            $weightValue.text(scaleData.weight.toLocaleString());
+            $weightUnit.text(' lb');
+            $weightDisplay.removeClass('weight-ok weight-motion').addClass('weight-error');
+            $scaleStatus.removeClass('status-motion').addClass('status-error').text(T('NOT ON SCALE'));
         } else if (scaleData.motion) {
             $weightValue.text(scaleData.weight.toLocaleString());
             $weightUnit.text(' lb');
@@ -1381,7 +1420,7 @@
 
         // Recover from error
         if (!scaleData.error && currentState === 'scale-error') {
-            setState(scaleData.weight >= WEIGHT_THRESHOLD ? 'ready' : 'idle');
+            setState(readyOrIdle());
             return;
         }
 
@@ -1409,8 +1448,14 @@
         }
 
         // Auto-transition between idle and ready
-        if (currentState === 'idle' && scaleData.weight >= WEIGHT_THRESHOLD && !scaleData.error) {
+        if (currentState === 'idle' && scaleData.weight >= WEIGHT_THRESHOLD && !scaleData.error && !offScale()) {
             setState('ready');
+            return;
+        }
+        // Rolled onto a detector after arming: drop out of ready so ENTER does
+        // nothing until the truck is clear of both ends.
+        if (currentState === 'ready' && offScale()) {
+            setState('idle');
             return;
         }
         if (currentState === 'ready' && scaleData.weight < WEIGHT_THRESHOLD) {
@@ -1419,7 +1464,7 @@
         }
 
         // Motion wait: check if motion stopped
-        if (currentState === 'motion-wait' && !scaleData.motion && !scaleData.error) {
+        if (currentState === 'motion-wait' && !scaleData.motion && !scaleData.error && !offScale()) {
             clearTimeout(motionTimer);
             motionTimer = null;
             onMotionStopped();
@@ -1443,11 +1488,13 @@
         ticketInput = '';
         activeCardNumber = null;
         cardValues = {};
+        tareOffer = null;
 
         var overlayId;
         if (reason === 'error') overlayId = 'overlay-error-cancel';
         else if (reason === 'timeout') overlayId = 'overlay-operation-timeout';
         else if (reason === 'weight-changed') overlayId = 'overlay-weight-changed';
+        else if (reason === 'not-on-scale') overlayId = 'overlay-not-on-scale';
         else overlayId = 'overlay-motion-timeout';
         showOverlay(overlayId, OVERLAY_DURATION_MS);
     }
@@ -1456,7 +1503,7 @@
         $('#' + id).addClass('active');
         setTimeout(function () {
             $('#' + id).removeClass('active');
-            setState(scaleData.weight >= WEIGHT_THRESHOLD && !scaleData.error ? 'ready' : 'idle');
+            setState(readyOrIdle());
         }, duration);
     }
 
@@ -1476,7 +1523,7 @@
     $('#ticket-cancel').on('click', function () {
         clearOperationTracking();
         ticketInput = '';
-        setState(scaleData.weight >= WEIGHT_THRESHOLD ? 'ready' : 'idle');
+        setState(readyOrIdle());
     });
 
     function startOperationTracking() {
@@ -1513,6 +1560,7 @@
     function startWeighIn() {
         activeFlow = 'weighin';
         weighinData = {};
+        tareOffer = null;
         startOperationTracking();
 
         // Refresh master-data lists before building the prompt queue so any
@@ -1530,7 +1578,7 @@
     }
 
     function buildWeighInPrompts() {
-        return buildPromptsForDirection('inbound');
+        return buildPromptsForDirection('inbound', false);
     }
 
     /// Map a CustomField.ParentField reference to the weighinData key its
@@ -1544,7 +1592,7 @@
     /// Build the prompt queue for either an inbound (weigh-in) or outbound (weigh-out)
     /// run. Each entry carries an `allowSkip` flag so renderPrompt can suppress the
     /// "— None —" row + Skip button when the operator must pick a real value.
-    function buildPromptsForDirection(direction) {
+    function buildPromptsForDirection(direction, fromCard) {
         var inbound = direction === 'inbound';
         var prompts = [];
         if (kioskSettings.promptCarrier) {
@@ -1610,6 +1658,23 @@
                 }
             });
         }
+        // Retained tare: when the truck already has a stored empty weight, the
+        // driver chooses whether to finish the load on it or reset it and weigh
+        // out for real. Asked last, so carrier and truck are already known — the
+        // lookup happens in showNextPrompt, and the prompt drops out when there
+        // is no tare to offer. Weigh-out never asks: it is a real weighment, and
+        // it stores a fresh tare on its own.
+        // Gated per source: a site can let operators at the touchscreen re-tare
+        // while keeping card presentations prompt-free, or forbid both. With the
+        // gate off there is no question to ask, and the server applies the
+        // stored tare automatically the way it always did.
+        var mayReset = fromCard
+            ? kioskSettings.allowTareResetCard
+            : kioskSettings.allowTareResetKiosk;
+        if (inbound && kioskSettings.useRetainedTare && mayReset) {
+            prompts.push({ key: '__tare', title: T('Stored Tare'),
+                           items: [], loadFrom: 'tare', allowSkip: false });
+        }
         return prompts;
     }
 
@@ -1647,9 +1712,53 @@
             // No carrier selected, skip truck prompt
             promptIndex++;
             showNextPrompt();
+        } else if (prompt.loadFrom === 'tare') {
+            resolveTarePrompt(prompt);
         } else {
             renderPrompt(prompt);
         }
+    }
+
+    /// Turn this truck's stored empty weight into a two-choice prompt. Anything
+    /// that means "nothing to offer" — no truck identity, a truck master data
+    /// has never seen, a tare already swept as stale, a lookup that fails —
+    /// drops the prompt, so a site with no tares runs exactly as it did before.
+    function resolveTarePrompt(prompt) {
+        function skipTarePrompt() {
+            tareOffer = null;
+            promptIndex++;
+            showNextPrompt();
+        }
+
+        tareOffer = null;
+        // Card weigh-ins answer carrier and truck from the card rather than the
+        // prompts, so the driver still gets the choice.
+        var carrier = weighinData.carrier || cardValues.carrier;
+        var truckId = weighinData.truck || cardValues.truck;
+        if (!carrier || !truckId) { skipTarePrompt(); return; }
+
+        $.getJSON('/api/retainedtares/lookup', { carrier: carrier, truckId: truckId })
+            .done(function (d) {
+                if (!d || d.retainedTare === null || typeof d.retainedTare === 'undefined') {
+                    skipTarePrompt();
+                    return;
+                }
+                var when = '';
+                if (d.retainedTareUpdated) {
+                    try { when = TF(' (from {0})', new Date(d.retainedTareUpdated).toLocaleDateString(LANG)); }
+                    catch (e) { when = ''; }
+                }
+                tareOffer = {
+                    tare: d.retainedTare,
+                    useLabel: TF('Finish now — use stored {0} lb', d.retainedTare.toLocaleString()) + when,
+                    resetLabel: T('Reset tare — weigh out on the scale')
+                };
+                prompt.items = [tareOffer.useLabel, tareOffer.resetLabel];
+                renderPrompt(prompt);
+            })
+            // An unknown truck 404s here; either way there is no tare to offer
+            // and the driver must not be stranded on a dead prompt.
+            .fail(skipTarePrompt);
     }
 
     function renderPrompt(prompt) {
@@ -1783,7 +1892,7 @@
         activeFlow = null;
         weighinData = {};
         promptQueue = [];
-        setState(scaleData.weight >= WEIGHT_THRESHOLD ? 'ready' : 'idle');
+        setState(readyOrIdle());
     });
 
     // ===== NUMERIC CUSTOM-FIELD PROMPT =====
@@ -1946,6 +2055,7 @@
     };
 
     function promptLabelFor(key) {
+        if (key === '__tare') return T('Stored Tare');
         if (STANDARD_PROMPT_LABELS[key]) return STANDARD_PROMPT_LABELS[key];
         if (key.indexOf('cf') === 0) {
             var id = parseInt(key.substring(2));
@@ -1966,6 +2076,10 @@
             if (('cf' + f.id) in weighinData) keys.push('cf' + f.id);
         });
         promptQueue.forEach(function (p) {
+            // The tare prompt drops out when the truck has no stored tare. No
+            // answer there means there was nothing to ask, not a skipped field,
+            // so it must not show up as one on the confirm screen.
+            if (p.key === '__tare' && !(p.key in weighinData)) return;
             if (keys.indexOf(p.key) < 0) keys.push(p.key);
         });
 
@@ -2008,7 +2122,7 @@
         promptQueue = [];
         activeCardNumber = null;
         cardValues = {};
-        setState(scaleData.weight >= WEIGHT_THRESHOLD ? 'ready' : 'idle');
+        setState(readyOrIdle());
     }
 
     $('#confirm-accept').on('click', acceptConfirmation);
@@ -2043,8 +2157,10 @@
 
     // ===== MOTION WAIT =====
     function startMotionWait() {
-        // If no motion, proceed immediately
-        if (!scaleData.motion && !scaleData.error) {
+        // If no motion, proceed immediately. Hanging off an end counts as not
+        // settled: the wait below gives the driver time to pull fully on, and
+        // times out into the same cancel as a truck that never stops moving.
+        if (!scaleData.motion && !scaleData.error && !offScale()) {
             onMotionStopped();
             return;
         }
@@ -2052,7 +2168,9 @@
         setState('motion-wait');
         motionTimer = setTimeout(function () {
             motionTimer = null;
-            cancelOperation('motion');
+            // Say which of the two kept us waiting — "motion did not stop" is
+            // actively misleading to a driver whose truck is parked but long.
+            cancelOperation(offScale() ? 'not-on-scale' : 'motion');
         }, MOTION_TIMEOUT_MS);
     }
 
@@ -2095,7 +2213,14 @@
                 printerId: kioskHasPrinter ? (kioskServiceId + ':' + kioskPrinterId) : null,
                 customFields: buildCustomFieldPayload(),
                 cardNumber: activeCardNumber,
-                scaleName: kioskScaleName || null
+                scaleName: kioskScaleName || null,
+                // Null when the truck had no stored tare to ask about, which
+                // leaves the server's automatic handling exactly as it was.
+                // Both halves matter: an offer with no answer is a question
+                // that never reached the driver, and must not read as a reset.
+                useRetainedTare: (tareOffer && ('__tare' in weighinData))
+                    ? (weighinData.__tare === tareOffer.useLabel)
+                    : null
             }),
             success: function (result) {
                 completedCardMessage = cardGuidance(result);
@@ -2269,7 +2394,7 @@
         $('.kiosk-reprint-label').css('display', '');
         clearOperationTracking();
         $('#demo-ticket-area').empty();
-        setState(scaleData.weight >= WEIGHT_THRESHOLD && !scaleData.error ? 'ready' : 'idle');
+        setState(readyOrIdle());
     }
 
     function reprintTicket() {

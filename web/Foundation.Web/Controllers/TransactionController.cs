@@ -567,6 +567,11 @@ public class TransactionController : Controller
                 new { ticket = id, direction = "out", cameraId });
         }
 
+        // Open the exit for the scale that weighed the truck out. A manually
+        // keyed weight means the truck was never on the deck, so there is
+        // nothing to let out and OutScale is null — the gate stays shut.
+        await GateDispatch.OpenForTicket(_hub, _db, _log, existing.OutScale, id, "weighout");
+
         // Auto-print: the out-weighing scale's printer, else the site default
         var outboundPrinter = SiteScales.ResolvePrinter(_db, existing.OutScale ?? existing.InScale, outbound: true, setup);
         if (!string.IsNullOrEmpty(outboundPrinter))

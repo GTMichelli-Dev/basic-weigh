@@ -426,6 +426,16 @@
                     display.css('color', '#ff0000');
                     status.css('color', '#ff0000').text('ERROR');
                     saveBtn.prop('disabled', true);
+                } else if (data.onScale === false) {
+                    // An end detector says part of the truck is off the deck, so
+                    // this reading is not the whole vehicle. Only an explicit
+                    // false blocks — a scale with no detectors wired, or an older
+                    // reader service, sends nothing here.
+                    val.text(data.weight.toLocaleString());
+                    unit.text('lb');
+                    display.css('color', '#ff0000');
+                    status.css('color', '#ff0000').text('NOT ON SCALE');
+                    saveBtn.prop('disabled', true);
                 } else if (data.motion) {
                     val.text(data.weight.toLocaleString());
                     unit.text('lb');

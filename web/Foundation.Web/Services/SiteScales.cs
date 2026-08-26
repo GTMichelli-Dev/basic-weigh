@@ -21,7 +21,8 @@ public class SiteScales
     }
 
     public record Reading(int Weight, bool Motion, bool Ok, bool Error, bool ComError,
-                          string Status, int? ScaleDbId, string? ScaleName);
+                          string Status, int? ScaleDbId, string? ScaleName,
+                          bool OnScale = true);
 
     /// <summary>The requested scale, or the default (first active) when id is null.</summary>
     public static Scale? Resolve(ScaleDbContext db, int? scaleDbId) =>
@@ -53,7 +54,7 @@ public class SiteScales
             return new Reading(0, false, false, true, true, "COM Error", scale.Id, scale.Name);
 
         return new Reading(reading.Weight, reading.Motion, reading.Ok, !reading.Ok,
-            reading.ComError, reading.Status, scale.Id, scale.Name);
+            reading.ComError, reading.Status, scale.Id, scale.Name, reading.OnScale);
     }
 
     /// <summary>Set a scale's simulator state (demo mode).</summary>

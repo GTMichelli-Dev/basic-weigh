@@ -240,13 +240,30 @@ public class MobileController : Controller
         }
         var ticketNumber = setup.TicketNumber.ToString();
 
-        // Retained tare can close the load in one weighment. Unlike the kiosk,
-        // the phone asks first: the driver is told the stored empty weight and
-        // decides whether to finish now or come back and weigh out for real.
+        // Retained tare can close the load in one weighment. The phone and the
+        // kiosk both ask first: the driver is told the stored empty weight and
+        // decides whether to finish now or reset it and weigh out for real.
         // UseRetainedTare null means the page never asked (an older page), and
-        // falls back to the kiosk's automatic behaviour.
+        // falls back to applying the tare automatically.
         var (truck, usableTare, tareUpdated) = UsableTare(setup, request.Carrier, request.TruckId);
         bool tareApplied = usableTare.HasValue && request.UseRetainedTare != false;
+
+        // Declining is a reset, not a skip for this load only: clearing the
+        // stored value is what makes this visit's real weigh-out capture a
+        // fresh tare instead of the old one surviving until it goes stale.
+        //
+        // Unless the site has taken that away from phone drivers — then
+        // declining falls back to what it meant before the reset existed: this
+        // load is weighed out for real, but the stored tare survives for the
+        // next visit. Re-checked here so a stale page cannot clear anything.
+        if (usableTare.HasValue && request.UseRetainedTare == false
+            && truck != null && setup.AllowTareResetMobile)
+        {
+            _log.LogInformation("RetainedTare: mobile reset tare for {TruckId}/{Carrier} (was {Tare} lb)",
+                truck.TruckId, truck.CarrierName, truck.RetainedTare);
+            truck.RetainedTare = null;
+            truck.RetainedTareUpdated = null;
+        }
 
         var now = DateTime.UtcNow;
         var dateIn = tareApplied ? (tareUpdated ?? now) : now;
@@ -291,6 +308,8 @@ public class MobileController : Controller
         if (tareApplied)
         {
             await _hub.Clients.All.SendAsync("TicketCompleted", new { ticket = ticketNumber, type = "weighout" });
+            // Finished in one weighment on a stored tare — the truck is leaving.
+            await GateDispatch.OpenForTicket(_hub, _db, _log, scale.Name, ticketNumber, "weighout");
         }
         else
         {
@@ -408,6 +427,11 @@ public class MobileController : Controller
         ClearTicketCookie();
 
         await _hub.Clients.All.SendAsync("TicketCompleted", new { ticket = transaction.Ticket, type = "weighout" });
+        // A load closed on a stored tare was never on this scale, so fall back
+        // to the scale that captured the inbound weight — that is the deck the
+        // truck is sitting on, and the gate that has to let it out.
+        await GateDispatch.OpenForTicket(_hub, _db, _log,
+            transaction.OutScale ?? transaction.InScale, transaction.Ticket, "weighout");
 
         if (setup.SavePicture)
             await SendCameraCapture(transaction.Ticket, "out", setup.OutboundCameraId);

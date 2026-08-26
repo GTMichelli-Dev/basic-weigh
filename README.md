@@ -15,6 +15,7 @@ Foundation is a web-based truck scale management application for weighing inboun
   - [Server (Debian x64)](#server-debian-x64)
   - [Multiple Sites at Once](#multiple-sites-at-once)
   - [Raspberry Pi Print Agent (arm64)](#raspberry-pi-print-agent-arm64)
+  - [Gate Controller Service (arm64)](#gate-controller-service-arm64)
   - [Raspberry Pi Kiosk Display (arm64)](#raspberry-pi-kiosk-display-arm64)
 - [Server Management](#server-management)
   - [Updating to a New Version](#updating-to-a-new-version)
@@ -53,6 +54,9 @@ Foundation is a web-based truck scale management application for weighing inboun
 - **Field Ordering** — Standard and custom fields share one sort order that drives the weigh forms, with the two form columns kept balanced automatically
 - **Kiosk Mode** — Touchscreen-optimized interface for unattended scale houses (1280x800 resolution)
 - **Prox Card Weighing** — A loader operator issues an HID / prox card from a phone with the load's details already on it; the driver presents the card at a kiosk reader to weigh in and out without answering prompts. Cards deactivate when the load closes, or recycle for the next trip
+- **Retained Tare** — A truck's empty weight is stored on weigh-out and reused, so a return trip closes in one weighment. When a truck has a stored tare, the kiosk and the phone page tell the driver what it is and let them either finish on it or **reset** it — a reset clears the stored weight and keeps the ticket open so the real weigh-out captures a fresh one. Whether a driver may reset is gated per source (kiosk, phone, prox card) in Setup; with a gate off that source applies the stored tare automatically instead. Tares expire overnight by default, and the office can view, edit, or clear them on the Retained Tare page
+- **Gate & Light Control** — A Raspberry Pi ([Gate Controller Service](GateControllerService/README.md)) opens a gate or turns on a light when a ticket completes on the scale it serves, releasing once the truck drives off or a timeout expires. Per-scale, and entirely optional
+- **On-Scale Detection** — Optional photo-eyes at each end of the deck, wired to two Pi inputs. While either beam is broken the truck is hanging off the platform, so the kiosk, phone page and weigh forms show **NOT ON SCALE** and refuse to capture. A scale with no detectors wired behaves exactly as before
 - **Remote Printing** — Print tickets to thermal printers via Raspberry Pi print agents over SignalR
 - **Ticket Designer** — Edit ticket layouts with the built-in DevExpress Report Designer
 - **Driver Signature Capture** — Operator-device overlay or a remote signature-pad tablet (opened by scanning a QR code on the Setup page)
@@ -301,6 +305,22 @@ in [`RfidReaderService/README.md`](RfidReaderService/README.md) applies instead.
 
 Re-run to update; the reader configuration is preserved. Configure the reader from
 **Setup → Options → Readers** in the web app.
+
+### Gate Controller Service (arm64)
+
+Drives a gate relay and/or a light from a Pi's GPIO header when a ticket
+completes. Shipped as `gate-controller-linux-arm64.tar.gz` on each release:
+
+```bash
+curl -fsSL -o gate.tar.gz https://github.com/GTMichelli-Dev/foundation/releases/latest/download/gate-controller-linux-arm64.tar.gz
+mkdir -p /tmp/gcs && tar -xzf gate.tar.gz -C /tmp/gcs
+bash /tmp/gcs/install.sh https://scale.yourcompany.com --service-id north-gate
+```
+
+Re-run to update; the gate configuration is preserved. Add the gates at
+`http://<pi>:5240/`, then set each Scale's **Gate** to `<service-id>:<gate-id>`
+on the Scale page. Full details in
+[GateControllerService/README.md](GateControllerService/README.md).
 
 ### Raspberry Pi Print Agent (arm64)
 
@@ -648,8 +668,8 @@ pages and adds a **Card Setup** link to the navbar.
    carries and only asks for fields that are **required and not set on the card**. Nothing on
    the card means the full prompt sequence, exactly as before.
 4. The driver weighs out with the same card — no ticket number to key in. If the truck has an
-   active [retained tare](#configuration), the first presentation closes the load in one
-   weighment.
+   active [retained tare](#configuration), the first presentation offers to close the load in
+   one weighment — the driver picks that or resets the tare, same as a keyed weigh-in.
 5. When the load closes the card is **deactivated** until the operator re-issues it, unless
    the recycle gate is set — then it keeps its details and works again straight away. The
    kiosk tells the driver which it is: *"KEEP YOUR CARD FOR YOUR NEXT LOAD"* or *"RETURN CARD

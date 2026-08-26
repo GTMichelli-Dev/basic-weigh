@@ -94,6 +94,9 @@ public class SetupController : Controller
         existing.SavePicture = setup.SavePicture;
         existing.UseRetainedTare = setup.UseRetainedTare;
         existing.AutoClearStaleRetainedTare = setup.AutoClearStaleRetainedTare;
+        existing.AllowTareResetKiosk = setup.AllowTareResetKiosk;
+        existing.AllowTareResetMobile = setup.AllowTareResetMobile;
+        existing.AllowTareResetCard = setup.AllowTareResetCard;
         existing.UseCardReader = setup.UseCardReader;
         existing.RecycleCards = setup.RecycleCards;
         existing.SignatureMode = setup.SignatureMode ?? "None";
