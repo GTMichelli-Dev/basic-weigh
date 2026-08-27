@@ -65,5 +65,5 @@ you create this one with a `master` default branch instead, update `BRANCH` in
 ## 5. Pi bootstrap
 
 Deploy Pis clone private org repos with the GitHub App credential helper — see
-`docs/pi-git-auth.md` in the main repo. No extra setup is needed for this repo
+the [pi-git-auth](https://github.com/GTMichelli-Dev/pi-git-auth) repo. No extra setup is needed for this repo
 beyond the one-time per-Pi bootstrap that is already required for the others.
