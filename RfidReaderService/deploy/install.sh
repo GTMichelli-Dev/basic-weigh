@@ -120,6 +120,37 @@ fi
 echo "============================================"
 echo ""
 
+# ---- Port availability ----
+#
+# 5230 is this service's default AND the Web Print Service's, and a scale house
+# Pi commonly runs both. Kestrel cannot bind a taken port, so the service dies
+# during startup with an unhandled AddressInUseException - which systemd reports
+# only as "code=killed, signal=ABRT" in a restart loop. Nothing in that says
+# "port", so it reads as a crashing binary.
+#
+# Catch it here, while someone is watching, and name what is holding the port.
+# Skipped when this service already owns it: re-running the installer to update
+# is the normal path, and the running copy is stopped a few steps below.
+if command -v ss &> /dev/null; then
+    PORT_HOLDER=$(ss -tlnpH "sport = :${SERVICE_PORT}" 2>/dev/null | head -1)
+    if [ -n "$PORT_HOLDER" ] && ! echo "$PORT_HOLDER" | grep -q "RfidReaderService"; then
+        HOLDER_NAME=$(echo "$PORT_HOLDER" | sed -n 's/.*users:((\"\([^\"]*\)\".*/\1/p')
+        [ -z "$HOLDER_NAME" ] && HOLDER_NAME="another process (re-run with sudo to see which)"
+        echo "ERROR: port ${SERVICE_PORT} is already in use by ${HOLDER_NAME}."
+        echo ""
+        case "$HOLDER_NAME" in
+            *PiPrintService*|*web-print*)
+                echo "  That is the Web Print Service, which defaults to the same port." ;;
+        esac
+        echo "  The service cannot bind it and would fail on startup."
+        echo "  Re-run with a free port, for example:"
+        echo ""
+        echo "    bash ${BASH_SOURCE[0]} ${WEB_URL} --service-id ${SERVICE_ID} --port 5231"
+        echo ""
+        exit 1
+    fi
+fi
+
 # ---- Detect architecture ----
 echo "[1/5] Detecting system..."
 ARCH=$(uname -m)
@@ -289,10 +320,23 @@ with open('${INSTALL_DIR}/appsettings.json', 'r') as f:
 config.setdefault('Rfid', {})
 config['Rfid']['ServerUrl'] = '${WEB_URL}'
 config['Rfid']['ServiceId'] = '${SERVICE_ID}'
+# Urls MUST be written here, not left to ASPNETCORE_URLS in the unit file.
+# appsettings.json sits later in the configuration chain than the host's
+# environment variables, so this key wins - a unit saying 0.0.0.0:5231 and a
+# config file still saying localhost:5230 binds loopback on 5230, which makes
+# --port look like it does nothing and leaves Swagger unreachable from the LAN.
+config['Urls'] = 'http://0.0.0.0:${SERVICE_PORT}'
 with open('${INSTALL_DIR}/appsettings.json', 'w') as f:
     json.dump(config, f, indent=2)
 "
-    echo "  Updated appsettings.json"
+    echo "  Updated appsettings.json (listening on 0.0.0.0:${SERVICE_PORT})"
+elif [ -f "${INSTALL_DIR}/appsettings.json" ]; then
+    # Without python3 the file cannot be rewritten, and the stale Urls would
+    # silently win over everything set above. Say so rather than installing a
+    # service that binds the wrong port.
+    echo "  WARNING: python3 not found — appsettings.json was not updated."
+    echo "           The service will use whatever ServerUrl and Urls are already"
+    echo "           in ${INSTALL_DIR}/appsettings.json, not the values above."
 fi
 
 # ---- systemd ----
