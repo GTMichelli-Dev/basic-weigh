@@ -90,25 +90,38 @@ installs a git credential helper that mints short-lived tokens from the App's
 private key — after that, `git clone` / `git pull` of any org repo just works
 on the box.
 
+The scripts and the walkthrough live in
+**[pi-git-auth](https://github.com/GTMichelli-Dev/pi-git-auth)**, their own
+public repo, so every service repo points at one copy — and so a Pi that
+cannot authenticate to anything yet can still fetch the installer.
+
 **From Raspberry Pi Connect** (no SSH, no file copy — the usual field case):
-follow [Bootstrap path A](docs/pi-git-auth.md#bootstrap-path-a--pi-connect-web-shell-single-pi).
-It is five single-line commands plus a `nano` step for the PEM, because the
-Connect web shell mangles multi-line bracketed pastes — it appends the
-`^[[201~` end marker to the last line, which corrupts a pasted key.
-
-[`scripts/pi-connect-github-auth.sh`](scripts/pi-connect-github-auth.sh) does
-the same thing in one prompt-driven script if you prefer it; it strips those
-markers, but the `nano` path avoids the problem rather than compensating for
-it. Either way, have the `.pem` open in a text editor before you start.
-
-**From a workstation with SSH access**, copy the files across instead:
 
 ```bash
-scp scripts/setup-pi-github-app.sh scripts/michelli-github-app-token.sh \
-    scripts/git-credential-michelli.sh /path/to/michelli-app.pem admin@<pi>:/tmp/
-ssh admin@<pi> "sudo bash /tmp/setup-pi-github-app.sh --install-id <ID> --pem /tmp/michelli-app.pem"
-ssh admin@<pi> "shred -u /tmp/michelli-app.pem"
+curl -fsSL -o /tmp/gh-auth.sh https://raw.githubusercontent.com/GTMichelli-Dev/pi-git-auth/main/scripts/pi-connect-github-auth.sh
+bash /tmp/gh-auth.sh </dev/tty
 ```
+
+It asks for the Installation ID and takes the PEM as a paste, stripping the
+`^[[201~` bracketed-paste markers the Connect web shell appends to the last
+line — which would otherwise corrupt the key. Have the `.pem` open in a text
+editor before you start. The
+[step-by-step path](https://github.com/GTMichelli-Dev/pi-git-auth#bootstrap-path-a--pi-connect-web-shell-single-pi)
+avoids the paste problem entirely with a `nano` step, for when you want to
+watch each part happen.
+
+**From a workstation with SSH access**, or on a Pi with `curl` but no `git`,
+take the release tarball:
+
+```bash
+curl -fsSL -o pga.tar.gz https://github.com/GTMichelli-Dev/pi-git-auth/releases/latest/download/pi-git-auth.tar.gz
+mkdir -p /tmp/pga && tar -xzf pga.tar.gz -C /tmp/pga
+sudo bash /tmp/pga/setup-pi-github-app.sh --install-id <ID> --pem /path/to/michelli-app.pem
+shred -u /path/to/michelli-app.pem   # if you copied it onto the Pi
+```
+
+Take the tarball rather than a single script — `setup-pi-github-app.sh`
+installs the two helpers from alongside itself and stops if they are not there.
 
 Either way, verify against a **private** repo — the public ones answer without
 auth and so prove nothing:
@@ -118,8 +131,8 @@ git ls-remote https://github.com/GTMichelli-Dev/pi-network-setup.git HEAD
 ```
 
 Full walkthrough — including creating the GitHub App the first time (org
-settings → Developer settings → GitHub Apps, Contents: Read-only) — in
-[docs/pi-git-auth.md](docs/pi-git-auth.md).
+settings → Developer settings → GitHub Apps, Contents: Read-only) — in the
+[pi-git-auth README](https://github.com/GTMichelli-Dev/pi-git-auth#readme).
 
 <!-- Legacy heading anchors. The old inline deploy sections used these
      ids; readers with saved deep-links land on the table above and follow
@@ -239,7 +252,7 @@ One command deploys or updates everything on a scale-house Pi — the web app
 (built locally, pushed over SSH) plus the Scale Reader Service, Web Print
 Service, and [pi-network-setup](https://github.com/GTMichelli-Dev/pi-network-setup)
 tech access point (cloned and built on the Pi; requires the
-[GitHub App bootstrap](docs/pi-git-auth.md) once per Pi):
+[GitHub App bootstrap](https://github.com/GTMichelli-Dev/pi-git-auth) once per Pi):
 
 ```bash
 bash deploy/deploy-pi-all.sh admin@<pi-ip>

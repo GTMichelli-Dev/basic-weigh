@@ -21,8 +21,8 @@ set -euo pipefail
 #   --skip-net             Don't install the network setup helper (tech AP)
 #
 # Prerequisites:
-#   - The Pi is bootstrapped with the GitHub App credential helper
-#     (scripts/setup-pi-github-app.sh) so it can clone the service repos.
+#   - The Pi is bootstrapped with the GitHub App credential helper, so it can
+#     clone the service repos. See https://github.com/GTMichelli-Dev/pi-git-auth
 #   - Re-running is safe: every installer preserves its database/settings.
 #
 # Tip: with password auth you'll be prompted several times. Run
@@ -92,10 +92,11 @@ if [[ "$SKIP_SCALE" == "0" || "$SKIP_PRINT" == "0" || "$SKIP_NET" == "0" ]]; the
     echo "----------------------------------------"
     echo "$GIT_CHECK_OUT" | tail -5
     echo "----------------------------------------"
-    echo "       Bootstrap it first — see docs/pi-git-auth.md:"
-    echo "         scp scripts/setup-pi-github-app.sh scripts/michelli-github-app-token.sh \\"
-    echo "             scripts/git-credential-michelli.sh <pem> $REMOTE:/tmp/"
-    echo "         ssh $REMOTE 'sudo bash /tmp/setup-pi-github-app.sh --install-id <ID> --pem /tmp/<pem>'"
+    echo "       Bootstrap it first — https://github.com/GTMichelli-Dev/pi-git-auth"
+    echo "         ssh $REMOTE 'curl -fsSL -o /tmp/pga.tar.gz https://github.com/GTMichelli-Dev/pi-git-auth/releases/latest/download/pi-git-auth.tar.gz'"
+    echo "         ssh $REMOTE 'mkdir -p /tmp/pga && tar -xzf /tmp/pga.tar.gz -C /tmp/pga'"
+    echo "         scp <pem> $REMOTE:/tmp/"
+    echo "         ssh $REMOTE 'sudo bash /tmp/pga/setup-pi-github-app.sh --install-id <ID> --pem /tmp/<pem>'"
     exit 1
   fi
 fi

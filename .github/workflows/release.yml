@@ -264,6 +264,16 @@ jobs:
 
           The RFID and gate archives carry a \`README.txt\` covering options,
           ports and what to check when something is wrong.
+
+          ## Pi git auth
+
+          None of the above needs git on the target — that is the point of
+          shipping prebuilt. A Pi that also has to \`git clone\` or \`git pull\`
+          a **private** GTMichelli-Dev repo (\`pi-network-setup\`,
+          \`camera-capture-service\`, \`qb-sync-service\`) needs a one-time
+          bootstrap first:
+
+          https://github.com/GTMichelli-Dev/pi-git-auth
           EOF
           )
 
