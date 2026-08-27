@@ -37,6 +37,16 @@ weigh out). This service only reports that a card was presented.
 
 ## Install (Raspberry Pi / Linux)
 
+From a release — no git and no .NET SDK needed on the Pi:
+
+```bash
+curl -fsSL -o rrs.tar.gz https://github.com/GTMichelli-Dev/foundation/releases/latest/download/rfid-reader-linux-arm64.tar.gz
+mkdir -p /tmp/rrs && tar -xzf rrs.tar.gz -C /tmp/rrs
+bash /tmp/rrs/install.sh https://your-server --service-id kiosk-1
+```
+
+Or from a checkout:
+
 ```bash
 git clone https://github.com/GTMichelli-Dev/rfid-reader-service.git /tmp/rrs
 bash /tmp/rrs/deploy/install.sh https://your-server --service-id kiosk-1
@@ -70,6 +80,44 @@ fails with "Access to the port is denied" and the reader simply looks dead.
 sudo systemctl status rfid-reader-service
 sudo journalctl -u rfid-reader-service -f
 ```
+
+---
+
+## Install (Windows)
+
+The reader is often wired to the weigh PC rather than to a Pi. Download
+`rfid-reader-win-x64.zip` from the
+[latest release](https://github.com/GTMichelli-Dev/foundation/releases/latest),
+unzip it, and from an **admin** command prompt in that folder:
+
+```
+INSTALL.bat https://your-server -SerialPort COM3
+```
+
+Installs the Windows service with automatic startup, keeps the existing
+database, and applies the URL and service id. Re-run the same command to update.
+
+| Option | Default | Notes |
+|--------|---------|-------|
+| `-SerialPort` | — | Seeds one reader on that COM port. Omit it and none is seeded — add the reader from the web app instead. |
+| `-ServiceId` | computer name | Kiosks map to readers as `serviceId:readerId`. |
+| `-Port` | `5230` | See below. |
+| `-InstallDir` | `C:\Services\RfidReaderService` | |
+| `-ResetDb` | — | Start clean. A timestamped backup is taken regardless. |
+
+**Port 5230 collides with the Web Print Service**, which defaults to the same
+port. On a PC running both, install this one with `-Port 5231`; whichever
+service starts second otherwise fails to bind and stops, which looks exactly
+like a crash on startup. The installer checks the port first and names the
+process holding it.
+
+The shipped `appsettings.json` seeds a reader on `/dev/ttyUSB0` — right for the
+Pi, meaningless here — so the installer rewrites that seed rather than leaving
+it. A seeded reader that can never open its port still publishes itself to the
+web app, where it looks like a broken reader rather than one that was never
+there.
+
+`deploy/package-README.txt` ships inside the zip and covers the rest.
 
 ---
 
