@@ -4,3 +4,8 @@
 *.service text eol=lf
 kiosk-start text eol=lf
 kiosk-stop text eol=lf
+
+# cmd.exe is not reliable on LF-only batch files — `goto` in particular can
+# jump to the wrong place. core.autocrlf normalises these to LF in the repo, so
+# the Linux release runner would otherwise zip an LF-only installer.
+*.bat text eol=crlf

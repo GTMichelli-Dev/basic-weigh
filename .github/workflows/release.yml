@@ -83,11 +83,17 @@ jobs:
             -o out/rfid-arm64/app -p:PublishSingleFile=false
           cp RfidReaderService/deploy/install.sh out/rfid-arm64/
 
+      # The Windows package carries the installer, the double-clickable wrapper
+      # and its own README, so a tech can unzip it on a customer PC and read
+      # what to do without going back to GitHub - same layout as the scale
+      # reader's win-x64 zip.
       - name: Publish RfidReaderService (win-x64)
         run: |
           dotnet publish RfidReaderService/RfidReaderService.csproj \
             -c Release -r win-x64 --self-contained true \
             -o out/rfid-win/app -p:PublishSingleFile=false
+          cp RfidReaderService/deploy/install.ps1 RfidReaderService/deploy/INSTALL.bat out/rfid-win/
+          cp RfidReaderService/deploy/package-README.txt out/rfid-win/README.txt
 
       # ---- Gate controller service (Pi only) ---------------------------------
       # arm64 only, deliberately: this service exists to drive GPIO, and there
@@ -98,6 +104,7 @@ jobs:
             -c Release -r linux-arm64 --self-contained true \
             -o out/gate-arm64/app -p:PublishSingleFile=false
           cp GateControllerService/deploy/install.sh out/gate-arm64/
+          cp GateControllerService/deploy/package-README.txt out/gate-arm64/README.txt
 
       - name: Assemble packages
         run: |
@@ -129,6 +136,13 @@ jobs:
           test -f out/rfid-win/app/RfidReaderService.exe    || { echo "rfid exe missing";         exit 1; }
           test -f out/gate-arm64/app/GateControllerService  || { echo "gate binary missing";      exit 1; }
           test -f out/gate-arm64/install.sh                 || { echo "gate installer missing";   exit 1; }
+
+          # A package with no installer in it is worse than a failed build: it
+          # looks complete right up to the moment someone unzips it on site.
+          test -f out/rfid-win/install.ps1                  || { echo "rfid installer missing";   exit 1; }
+          test -f out/rfid-win/INSTALL.bat                  || { echo "rfid wrapper missing";     exit 1; }
+          test -f out/rfid-win/README.txt                   || { echo "rfid README missing";      exit 1; }
+          test -f out/gate-arm64/README.txt                 || { echo "gate README missing";      exit 1; }
 
           # A database must never ship - it would overwrite a site's own data.
           if find out -name "*.db" -o -name "*.db-wal" -o -name "*.db-shm" | grep -q .; then
@@ -176,13 +190,45 @@ jobs:
 
           ## RFID card reader service
 
-          \`rfid-reader-linux-arm64.tar.gz\` (Pi) — extract and run \`install.sh\`.
-          \`rfid-reader-win-x64.zip\` (weigh PC).
+          Reads HID / prox cards from an RS-232 reader and reports each
+          presentation to the web app. Usually a Pi beside a kiosk, but the
+          reader is often wired to the weigh PC instead — hence both builds.
 
-          ## Gate controller service (Pi)
+          ### Windows
+
+          Download \`rfid-reader-win-x64.zip\`, unzip it, then from an
+          **admin** command prompt in that folder:
+
+          \`\`\`
+          INSTALL.bat https://your-web-app-url -SerialPort COM3
+          \`\`\`
+
+          Installs the service with automatic startup, keeps the existing
+          database, and applies the web app URL. Re-run the same command to
+          update. \`-SerialPort\` is optional — leave it out and add the reader
+          from the web app instead. Add \`-ResetDb\` to start from a clean
+          database.
+
+          On a PC that also runs the Web Print Service, add \`-Port 5231\`:
+          both default to 5230, and the second one to start fails to bind.
+
+          ### Raspberry Pi (64-bit, Pi 4/5)
+
+          \`\`\`
+          curl -fsSL -o rrs.tar.gz https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/rfid-reader-linux-arm64.tar.gz
+          mkdir -p /tmp/rrs && tar -xzf rrs.tar.gz -C /tmp/rrs
+          bash /tmp/rrs/install.sh https://your-web-app-url --service-id kiosk-1
+          \`\`\`
+
+          Then map the kiosk to \`<service-id>:<reader-id>\` on the web app,
+          under **Setup → Options → Card Readers**.
+
+          ## Gate controller service
 
           Drives a gate relay and/or a light when a ticket completes, releasing
           once the truck drives off the scale or a timeout expires.
+
+          ### Raspberry Pi (64-bit, Pi 4/5)
 
           \`\`\`
           curl -fsSL -o gate.tar.gz https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/gate-controller-linux-arm64.tar.gz
@@ -192,12 +238,32 @@ jobs:
 
           Then add the gates wired to that Pi at \`http://<pi>:5240/\`, and set
           each Scale's **Gate** on the web app to \`<service-id>:<gate-id>\`.
-          Pi only — the service exists to drive GPIO.
+          Prove the wiring before a truck is involved:
+
+          \`\`\`
+          curl -X POST http://<pi>:5240/api/gates/gate-1/test
+          \`\`\`
+
+          ### Windows
+
+          There is no Windows build, and there will not be one. This service
+          exists to drive relays on the GPIO header, and a scale house PC has
+          no GPIO.
 
           ## Scale reader service
 
           Released separately, from its own repo:
           https://github.com/GTMichelli-Dev/scale-reader-service/releases/latest
+
+          ---
+
+          The URL you pass an installer must match the web app's real scheme
+          and port — a wrong one leaves the service reconnecting forever. Every
+          installer is safe to re-run: that is also how you update, and the
+          database is preserved.
+
+          The RFID and gate archives carry a \`README.txt\` covering options,
+          ports and what to check when something is wrong.
           EOF
           )
 

@@ -2,11 +2,22 @@
 # =============================================================================
 # RFID Reader Service - Self-Install Script for Raspberry Pi / Linux
 # =============================================================================
-# Run directly on the machine the card reader is plugged into:
+# Run directly on the machine the card reader is plugged into.
+#
+# From a release tarball (no git, no .NET SDK needed):
+#
+#   curl -fsSL -o rrs.tar.gz https://github.com/GTMichelli-Dev/foundation/releases/latest/download/rfid-reader-linux-arm64.tar.gz
+#   mkdir -p /tmp/rrs && tar -xzf rrs.tar.gz -C /tmp/rrs
+#   bash /tmp/rrs/install.sh <web-server-url>
+#
+# From a checkout:
 #
 #   git clone https://github.com/GTMichelli-Dev/rfid-reader-service.git /tmp/rrs
 #   bash /tmp/rrs/deploy/install.sh <web-server-url>
 #   rm -rf /tmp/rrs
+#
+# On Windows, where the reader is wired to the weigh PC, use the win-x64 zip
+# and its INSTALL.bat instead — see deploy/package-README.txt.
 #
 # Examples:
 #   # Production: web app on a real hostname
