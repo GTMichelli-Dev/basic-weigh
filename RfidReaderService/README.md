@@ -71,7 +71,7 @@ bash /tmp/fnd/RfidReaderService/deploy/install.sh https://your-server \
 |--------|---------|-------|
 | `<web-server-url>` | — | Required. Must match the web app's real listen port. |
 | `--service-id` | `default` | Kiosks map to readers as `serviceId:readerId`. |
-| `--port` | `5230` | Local REST/Swagger port. |
+| `--port` | `5250` | Local REST/Swagger port. See [service ports](../docs/service-ports.md). |
 | `--install-dir` | `/opt/rfid-reader-service` | |
 | `--local <path>` | — | Build from a local folder instead of cloning. |
 
@@ -106,15 +106,20 @@ database, and applies the URL and service id. Re-run the same command to update.
 |--------|---------|-------|
 | `-SerialPort` | — | Seeds one reader on that COM port. Omit it and none is seeded — add the reader from the web app instead. |
 | `-ServiceId` | computer name | Kiosks map to readers as `serviceId:readerId`. |
-| `-Port` | `5230` | See below. |
+| `-Port` | `5250` | See below. |
 | `-InstallDir` | `C:\Services\RfidReaderService` | |
 | `-ResetDb` | — | Start clean. A timestamped backup is taken regardless. |
 
-**Port 5230 collides with the Web Print Service**, which defaults to the same
-port. On a PC running both, install this one with `-Port 5231`; whichever
-service starts second otherwise fails to bind and stops, which looks exactly
-like a crash on startup. The installer checks the port first and names the
-process holding it.
+**This service listens on 5250.** Every Foundation service owns its own port
+(see [service ports](../docs/service-ports.md)), so several can share a Pi or a
+scale-house PC without being told about each other. It defaulted to 5230 until
+that collided with the Web Print Service — if you have an install still on 5230
+or moved to 5231, it keeps that port across updates; pass `--port 5250` to bring
+it onto the new default.
+
+A service that cannot bind its port fails to start and stops, which looks
+exactly like a crash on startup. The installer checks the port first and names
+the process holding it.
 
 The shipped `appsettings.json` seeds a reader on `/dev/ttyUSB0` — right for the
 Pi, meaningless here — so the installer rewrites that seed rather than leaving
@@ -130,7 +135,7 @@ there.
 
 Readers are normally configured from the web app: **Setup → Options → Card
 Readers**. Everything there is also available locally at
-`http://<host>:5230/swagger`:
+`http://<host>:5250/swagger`:
 
 | Endpoint | Purpose |
 |----------|---------|
@@ -225,5 +230,5 @@ Whatever this service reports is what must be enrolled in the web app.
 dotnet run
 ```
 
-Swagger opens at `http://localhost:5230/swagger`. Without a reader attached the
+Swagger opens at `http://localhost:5250/swagger`. Without a reader attached the
 service still starts, connects to the hub, and reports zero active readers.

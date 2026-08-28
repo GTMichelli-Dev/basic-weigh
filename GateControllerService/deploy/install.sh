@@ -32,7 +32,7 @@ set -e
 
 # ---- Defaults ----
 SERVICE_ID=""      # defaults to $(hostname) below
-SERVICE_PORT="5240"   # 5220 is the scale reader, 5230 the RFID reader
+SERVICE_PORT="5240"   # allocation lives in docs/service-ports.md
 INSTALL_DIR="/opt/gate-controller-service"
 SERVICE_NAME="gate-controller-service"
 DOTNET_CHANNEL="10.0"

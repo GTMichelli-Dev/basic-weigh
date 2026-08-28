@@ -122,7 +122,7 @@ app.UseSwaggerUI(c =>
 
 app.MapControllers();
 
-var urls = builder.Configuration["Urls"] ?? "http://localhost:5230";
+var urls = builder.Configuration["Urls"] ?? "http://localhost:5250";
 var logger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("RfidReaderService");
 logger.LogInformation("============================================");
 logger.LogInformation("  RFID Reader Service v{Version}", version);

@@ -45,7 +45,10 @@ set -e
 
 # ---- Defaults ----
 SERVICE_ID="default"
-SERVICE_PORT="5230"
+SERVICE_PORT="5250"
+# Whether --port was given. An update must not move a service that was
+# deliberately put somewhere else; see the port adoption block below.
+PORT_EXPLICIT=false
 INSTALL_DIR="/opt/rfid-reader-service"
 SERVICE_NAME="rfid-reader-service"
 DOTNET_CHANNEL="10.0"
@@ -62,7 +65,7 @@ LOCAL_SRC=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --service-id)  SERVICE_ID="$2"; shift 2 ;;
-        --port)        SERVICE_PORT="$2"; shift 2 ;;
+        --port)        SERVICE_PORT="$2"; PORT_EXPLICIT=true; shift 2 ;;
         --branch)      BRANCH="$2"; shift 2 ;;
         --install-dir) INSTALL_DIR="$2"; shift 2 ;;
         --local)       LOCAL_SRC="$2"; shift 2 ;;
@@ -75,7 +78,7 @@ while [[ $# -gt 0 ]]; do
             echo "Options:"
             echo "  --service-id <id>      Unique ID for this service (default: default)"
             echo "                         Kiosks map to readers as 'serviceId:readerId'."
-            echo "  --port <port>          API port (default: 5230)"
+            echo "  --port <port>          API port (default: 5250)"
             echo "  --branch <branch>      Git branch to install (default: main)"
             echo "  --install-dir <path>   Install location (default: /opt/rfid-reader-service)"
             echo "  --local <path>         Build from a local source folder instead of cloning"
@@ -124,13 +127,43 @@ fi
 echo "============================================"
 echo ""
 
+# ---- Keep the port an existing install is already on ----
+#
+# This script rewrites Urls in appsettings.json from SERVICE_PORT on every run,
+# so without this an update re-runs with the default and silently moves a
+# service that was deliberately placed elsewhere. Anyone who used --port to dodge
+# a conflict would be moved back into it by the next routine update, and the
+# symptom - a service that starts fine today and crash-loops after an update it
+# did not appear to change - is a miserable thing to diagnose in the field.
+#
+# An explicit --port always wins; this only fills in the default.
+if [ "$PORT_EXPLICIT" = false ] && [ -f "${INSTALL_DIR}/appsettings.json" ] && command -v python3 &> /dev/null; then
+    EXISTING_PORT=$(python3 -c "
+import json, re, sys
+try:
+    with open('${INSTALL_DIR}/appsettings.json') as f:
+        urls = json.load(f).get('Urls', '')
+    m = re.search(r':(\d{2,5})', urls if isinstance(urls, str) else '')
+    sys.stdout.write(m.group(1) if m else '')
+except Exception:
+    pass
+" 2>/dev/null)
+    if [ -n "$EXISTING_PORT" ] && [ "$EXISTING_PORT" != "$SERVICE_PORT" ]; then
+        echo "  Keeping port ${EXISTING_PORT} from the existing install"
+        echo "  (pass --port ${SERVICE_PORT} to move it to the new default)."
+        echo ""
+        SERVICE_PORT="$EXISTING_PORT"
+    fi
+fi
+
 # ---- Port availability ----
 #
-# 5230 is this service's default AND the Web Print Service's, and a scale house
-# Pi commonly runs both. Kestrel cannot bind a taken port, so the service dies
-# during startup with an unhandled AddressInUseException - which systemd reports
-# only as "code=killed, signal=ABRT" in a restart loop. Nothing in that says
-# "port", so it reads as a crashing binary.
+# This service owns 5250 alone (see docs/service-ports.md), but a Pi can be
+# running anything, and a second instance or a hand-edited config still collides.
+# Kestrel cannot bind a taken port, so the service dies during startup with an
+# unhandled AddressInUseException - which systemd reports only as
+# "code=killed, signal=ABRT" in a restart loop. Nothing in that says "port", so
+# it reads as a crashing binary.
 #
 # Catch it here, while someone is watching, and name what is holding the port.
 # Skipped when this service already owns it: re-running the installer to update
@@ -151,12 +184,13 @@ if command -v ss &> /dev/null; then
         echo ""
         case "$HOLDER_NAME" in
             *PiPrintService*|*web-print*)
-                echo "  That is the Web Print Service, which defaults to the same port." ;;
+                echo "  That is the Web Print Service. It defaults to 5230, so something"
+                echo "  has moved it onto this port." ;;
         esac
         echo "  The service cannot bind it and would fail on startup."
         echo "  Re-run with a free port, for example:"
         echo ""
-        echo "    bash ${BASH_SOURCE[0]} ${WEB_URL} --service-id ${SERVICE_ID} --port 5231"
+        echo "    bash ${BASH_SOURCE[0]} ${WEB_URL} --service-id ${SERVICE_ID} --port 5251"
         echo ""
         exit 1
     fi
@@ -336,8 +370,8 @@ config['Rfid']['ServerUrl'] = '${WEB_URL}'
 config['Rfid']['ServiceId'] = '${SERVICE_ID}'
 # Urls MUST be written here, not left to ASPNETCORE_URLS in the unit file.
 # appsettings.json sits later in the configuration chain than the host's
-# environment variables, so this key wins - a unit saying 0.0.0.0:5231 and a
-# config file still saying localhost:5230 binds loopback on 5230, which makes
+# environment variables, so this key wins - a unit saying 0.0.0.0:5251 and a
+# config file still saying localhost:5250 binds loopback on 5250, which makes
 # --port look like it does nothing and leaves Swagger unreachable from the LAN.
 config['Urls'] = 'http://0.0.0.0:${SERVICE_PORT}'
 with open('${INSTALL_DIR}/appsettings.json', 'w') as f:

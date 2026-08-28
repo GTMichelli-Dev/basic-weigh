@@ -34,9 +34,9 @@ The same command handles a fresh install and an update, and is safe to re-run.
         so this is the name you pick from on the web app. Defaults to the
         computer name, which is usually what you want.
 
-    INSTALL.bat https://your-web-app-url -Port 5231
-        Move the local API off 5230. Needed when this PC also runs the Web
-        Print Service, which defaults to the same port - see PORTS below.
+    INSTALL.bat https://your-web-app-url -Port 5251
+        Move the local API off 5250. Only needed if something else on this PC
+        already holds it - see PORTS below.
 
     INSTALL.bat https://your-web-app-url -ResetDb
         Start from a clean database. DESTROYS the reader configuration and the
@@ -73,16 +73,23 @@ for months, editing the config file alone would change nothing.
 
 PORTS
 -----
+    5210    Camera Capture Service
     5220    Scale Reader Service
-    5230    RFID Reader Service  AND  Web Print Service
+    5230    Web Print Service
     5240    Gate Controller Service
+    5250    RFID Reader Service      <-- this one
 
-5230 is a genuine collision on a PC running both this and the Web Print
-Service. Whichever starts second fails to bind and stops, which looks exactly
-like a service that crashed on startup. Install this one with -Port 5231.
+Every Foundation service owns its own port, so several can share one machine
+without being told about each other. This service used to default to 5230 and
+collided with the Web Print Service; it moved to 5250 and no longer does.
 
-The installer checks the port before starting and names the process holding it,
-so this is caught during the install rather than a week later.
+A service that cannot bind its port fails to start and stops, which looks
+exactly like a crash on startup. The installer checks the port first and names
+the process holding it, so a genuine clash is caught during the install rather
+than a week later.
+
+Updating an existing install keeps the port it is already on, so a machine
+deliberately put on 5231 stays there. Pass -Port to move it.
 
 
 READERS
@@ -118,12 +125,12 @@ ports it found. The box should appear on the web app under
 Setup -> Options -> Card Readers.
 
     sc query RfidReaderService
-    http://localhost:5230/swagger
-    http://localhost:5230/api/status          (per-reader state, last card)
-    http://localhost:5230/api/serialports     (ports this PC offers)
+    http://localhost:5250/swagger
+    http://localhost:5250/api/status          (per-reader state, last card)
+    http://localhost:5250/api/serialports     (ports this PC offers)
 
 Swagger listens on all interfaces, but Windows Firewall blocks it from other
-machines unless you add an inbound rule for the port (5230 by default).
+machines unless you add an inbound rule for the port (5250 by default).
 
 
 COMMISSIONING A READER
@@ -135,7 +142,7 @@ code.
 If a card is presented and nothing happens, look at the frames. Every frame is
 recorded, parsed or rejected:
 
-    http://localhost:5230/api/readers/<readerId>/frames
+    http://localhost:5250/api/readers/<readerId>/frames
 
   - no frames at all      -> wrong COM port or baud/parity, or the adapter is
                              not the one you think. Check /api/serialports.
@@ -163,7 +170,7 @@ Common ones:
       Usually the reader, not the service - see COMMISSIONING above.
 
   Service starts and immediately stops
-      Port 5230 taken by the Web Print Service - see PORTS above.
+      Something already holds its port - see PORTS above.
 
   "Access to the port is denied"
       Something else holds the COM port. A terminal program left open on it

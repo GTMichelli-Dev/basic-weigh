@@ -31,10 +31,11 @@
     no reader is seeded - add it from the web app instead.
 
 .PARAMETER Port
-    Local port for the Swagger/diagnostic API. Default 5230.
+    Local port for the Swagger/diagnostic API. Default 5250.
 
-    On a PC that also runs the Web Print Service, 5230 is already taken - that
-    service uses the same default. Use -Port 5231 here, or move the other one.
+    Each Foundation service owns its own port (see docs/service-ports.md), so
+    this should not collide on a normal install. If something else on the PC has
+    5250, use -Port 5251. The installer checks first and names the holder.
 
 .PARAMETER InstallDir
     Where the service is installed. Default C:\Services\RfidReaderService
@@ -63,7 +64,7 @@ param(
 
     [string]$ServiceId = "",
     [string]$SerialPort = "",
-    [int]$Port = 5230,
+    [int]$Port = 5250,
     [string]$InstallDir = "C:\Services\RfidReaderService",
     [string]$ServiceName = "RfidReaderService",
     [switch]$ResetDb,
@@ -429,14 +430,14 @@ $portOwner = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Si
 if ($portOwner) {
     $op = Get-Process -Id $portOwner.OwningProcess -ErrorAction SilentlyContinue
     if ($op -and $op.Path -notlike "$InstallDir*") {
-        # 5230 is also the Web Print Service's default, and a scale house PC
-        # commonly runs both. Name that rather than leaving a bare port clash.
+        # Name the holder rather than leaving a bare port clash. The Web Print
+        # Service defaults to 5230, so seeing it here means something moved it.
         $hint = ""
-        if ($Port -eq 5230 -and $op.Name -like "PiPrintService*") {
-            $hint = " That is the Web Print Service, which defaults to the same port."
+        if ($op.Name -like "PiPrintService*") {
+            $hint = " That is the Web Print Service; it defaults to 5230, so something has moved it."
         }
         Die ("Port $Port is already in use by '$($op.Name)' (pid $($op.Id))." + $hint +
-             " Re-run with -Port 5231.")
+             " Re-run with -Port 5251.")
     }
 }
 
