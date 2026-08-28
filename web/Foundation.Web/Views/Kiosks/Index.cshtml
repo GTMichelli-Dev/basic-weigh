@@ -1,0 +1,312 @@
+@{
+    ViewData["Title"] = "Kiosks";
+    var useCardReader = (bool)(ViewBag.UseCardReader ?? false);
+}
+
+<div class="d-flex justify-content-between align-items-center mb-2">
+    <h3 class="mb-0">Kiosks</h3>
+    <a href="/Setup" class="btn btn-outline-secondary btn-sm"><i class="fa fa-arrow-left"></i> Back to Setup</a>
+</div>
+
+<p class="text-muted small mb-3">
+    Kiosks register themselves. Point a display at <code id="kioskUrlSample">/Kiosk</code> and it walks
+    through setup on its own screen — scale, printer and card reader — then appears here. Change any of
+    it from this page, or press and hold the logo on the kiosk itself for three seconds to run setup again.
+</p>
+
+<div id="kioskToastContainer" style="position:fixed;top:70px;right:20px;z-index:9999;min-width:350px;max-width:500px;"></div>
+
+<div class="card">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0 align-middle">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Scale</th>
+                        <th>Printer</th>
+                        @if (useCardReader)
+                        {
+                            <th>Card Reader</th>
+                        }
+                        <th>Last Seen</th>
+                        <th>Active</th>
+                        <th style="width:150px;"></th>
+                    </tr>
+                </thead>
+                <tbody id="kioskRows">
+                    <tr><td colspan="7" class="text-center text-muted py-4">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Edit dialog: the office-side equivalent of the on-kiosk wizard. -->
+<div class="modal fade" id="kioskEditModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h5 class="modal-title">Edit Kiosk</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edKioskId" />
+                <div class="mb-2">
+                    <label class="form-label mb-0 small fw-bold" for="edName">Name</label>
+                    <input type="text" class="form-control form-control-sm" id="edName" maxlength="100" />
+                </div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 small fw-bold" for="edScale">Scale</label>
+                    <select class="form-select form-select-sm" id="edScale"></select>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label mb-0 small fw-bold" for="edPrinter">Printer</label>
+                    <select class="form-select form-select-sm" id="edPrinter"></select>
+                    <div class="form-text small">Printers announce themselves; one that is offline right now still shows if this kiosk is using it.</div>
+                </div>
+                @if (useCardReader)
+                {
+                    <div class="mb-2">
+                        <label class="form-label mb-0 small fw-bold" for="edReader">Card Reader</label>
+                        <select class="form-select form-select-sm" id="edReader"></select>
+                    </div>
+                }
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="edActive" />
+                    <label class="form-check-label small" for="edActive">
+                        Active — an inactive kiosk runs setup again the next time it loads
+                    </label>
+                </div>
+                <div class="form-text small mt-2">Device <code id="edDevice"></code></div>
+            </div>
+            <div class="modal-footer py-1">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" id="btnSaveKiosk">Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+<script src="~/js/signalr/signalr.min.js"></script>
+<script>
+    var useCardReader = @(useCardReader.ToString().ToLower());
+    var demoMode = @(((bool)(ViewBag.DemoMode ?? false)).ToString().ToLower());
+    // Same mapping the kiosk's setup wizard writes for a simulated reader.
+    var SIM_READER_ID = 'sim:demo-reader';
+    var kiosks = [];
+    var scales = [];
+    // Hardware announced over the hub, same source the on-kiosk wizard uses.
+    var printers = [{ value: 'Browser:Browser', label: 'Print on the kiosk screen' }];
+    var readers = demoMode ? [{ value: SIM_READER_ID, label: 'Simulated card reader (demo)' }] : [];
+
+    document.getElementById('kioskUrlSample').textContent = window.location.origin + '/Kiosk';
+
+    function esc(s) {
+        return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    function toast(message, kind) {
+        var el = document.createElement('div');
+        el.className = 'alert alert-' + (kind || 'success') + ' py-2 shadow';
+        el.textContent = message;
+        document.getElementById('kioskToastContainer').appendChild(el);
+        setTimeout(function () { el.remove(); }, 4000);
+    }
+
+    /// "Never" for a kiosk that registered but has not come back, otherwise a
+    /// relative age — the useful question is whether it is alive right now.
+    function lastSeen(iso) {
+        if (!iso) return '<span class="text-muted">Never</span>';
+        var then = new Date(iso + (iso.endsWith('Z') ? '' : 'Z'));
+        var mins = Math.floor((Date.now() - then.getTime()) / 60000);
+        if (mins < 2) return '<span class="text-success fw-bold">Now</span>';
+        if (mins < 60) return mins + ' min ago';
+        if (mins < 60 * 24) return Math.floor(mins / 60) + ' hr ago';
+        return then.toLocaleDateString();
+    }
+
+    function hardwareLabel(list, value, noneText) {
+        if (!value) return '<span class="text-muted fst-italic">' + esc(noneText) + '</span>';
+        if (value === SIM_READER_ID) return 'Simulated card reader (demo)';
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].value === value) return esc(list[i].label);
+        }
+        // Assigned but not announcing — show the raw mapping rather than
+        // pretending it is unset.
+        return '<code>' + esc(value) + '</code>';
+    }
+
+    function renderKiosks() {
+        var tbody = document.getElementById('kioskRows');
+        var cols = useCardReader ? 7 : 6;
+
+        if (!kiosks.length) {
+            tbody.innerHTML = '<tr><td colspan="' + cols + '" class="text-center text-muted py-4">' +
+                'No kiosks yet. Open ' + esc(window.location.origin + '/Kiosk') + ' on a kiosk display and it will set itself up.' +
+                '</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = kiosks.map(function (k) {
+            return '<tr>' +
+                '<td class="fw-bold">' + esc(k.name) + '</td>' +
+                '<td>' + (k.scaleName ? esc(k.scaleName) : '<span class="text-muted fst-italic">Default scale</span>') + '</td>' +
+                '<td class="small">' + hardwareLabel(printers, k.printerId, 'No printer') + '</td>' +
+                (useCardReader ? '<td class="small">' + hardwareLabel(readers, k.readerId, 'No card reader') + '</td>' : '') +
+                '<td class="small">' + lastSeen(k.lastSeenAt) + '</td>' +
+                '<td>' + (k.active ? '<span class="text-success fw-bold">&#10003;</span>' : '<span class="text-muted">&#10007;</span>') + '</td>' +
+                '<td class="text-end">' +
+                  '<button class="btn btn-outline-secondary btn-sm me-1" data-edit="' + k.id + '">Edit</button>' +
+                  '<button class="btn btn-outline-danger btn-sm" data-del="' + k.id + '">Remove</button>' +
+                '</td></tr>';
+        }).join('');
+    }
+
+    function loadKiosks() {
+        return fetch('/api/kiosks').then(function (r) { return r.json(); }).then(function (data) {
+            kiosks = data;
+            renderKiosks();
+        });
+    }
+
+    function loadScales() {
+        return fetch('/api/scales').then(function (r) { return r.json(); }).then(function (data) {
+            scales = data.filter(function (s) { return s.active; });
+        });
+    }
+
+    // ===== Hardware discovery (same announcements the kiosk wizard listens to) =====
+    function addPrinters(data) {
+        var sid = (data && data.serviceId) || 'default';
+        ((data && data.printers) || []).forEach(function (p) {
+            if (p.enabled === false) return;
+            var id = p.printerId || p.PrinterId;
+            if (!id) return;
+            var value = sid + ':' + id;
+            if (printers.some(function (x) { return x.value === value; })) return;
+            printers.push({ value: value, label: (p.displayName || p.DisplayName || id) + ' (' + sid + ')' });
+        });
+        renderKiosks();
+    }
+
+    function addReaders(data) {
+        var sid = (data && data.serviceId) || 'default';
+        ((data && data.readers) || []).forEach(function (r) {
+            var id = r.readerId || r.ReaderId;
+            if (!id) return;
+            if (r.active === false || r.Active === false) return;
+            var value = sid + ':' + id;
+            if (readers.some(function (x) { return x.value === value; })) return;
+            readers.push({ value: value, label: (r.displayName || r.DisplayName || id) + ' (' + sid + ')' });
+        });
+        renderKiosks();
+    }
+
+    var conn = new signalR.HubConnectionBuilder().withUrl('/scaleHub').withAutomaticReconnect().build();
+    conn.on('PrintServiceReady', addPrinters);
+    conn.on('PrinterListReceived', addPrinters);
+    conn.on('ReaderServiceReady', addReaders);
+    conn.on('ReaderListReceived', addReaders);
+    conn.start().then(function () {
+        conn.invoke('RequestPrinterList').catch(function () { });
+        if (useCardReader) conn.invoke('RequestReaderList').catch(function () { });
+    }).catch(function () { });
+
+    // ===== Edit =====
+    function fillSelect(select, options, value, noneLabel) {
+        select.innerHTML = '';
+        var none = document.createElement('option');
+        none.value = '';
+        none.textContent = noneLabel;
+        select.appendChild(none);
+
+        var seen = false;
+        options.forEach(function (o) {
+            var opt = document.createElement('option');
+            opt.value = o.value;
+            opt.textContent = o.label;
+            if (String(o.value) === String(value)) { opt.selected = true; seen = true; }
+            select.appendChild(opt);
+        });
+
+        // Keep an assignment whose service is offline, so opening and saving
+        // the dialog can't silently unassign hardware that is merely asleep.
+        if (value && !seen) {
+            var kept = document.createElement('option');
+            kept.value = value;
+            kept.textContent = value + ' (not connected)';
+            kept.selected = true;
+            select.appendChild(kept);
+        }
+    }
+
+    document.addEventListener('click', function (e) {
+        var editId = e.target.getAttribute && e.target.getAttribute('data-edit');
+        var delId = e.target.getAttribute && e.target.getAttribute('data-del');
+
+        if (editId) {
+            var k = kiosks.find(function (x) { return String(x.id) === editId; });
+            if (!k) return;
+            document.getElementById('edKioskId').value = k.id;
+            document.getElementById('edName').value = k.name;
+            document.getElementById('edDevice').textContent = k.deviceId;
+            document.getElementById('edActive').checked = k.active;
+            fillSelect(document.getElementById('edScale'),
+                scales.map(function (s) { return { value: s.id, label: s.name }; }),
+                k.scaleId, 'Default scale');
+            fillSelect(document.getElementById('edPrinter'), printers, k.printerId, 'No printer');
+            if (useCardReader) {
+                fillSelect(document.getElementById('edReader'), readers, k.readerId, 'No card reader');
+            }
+            new bootstrap.Modal(document.getElementById('kioskEditModal')).show();
+        }
+
+        if (delId) {
+            var kd = kiosks.find(function (x) { return String(x.id) === delId; });
+            if (!kd) return;
+            if (!window.confirm('Remove "' + kd.name + '"? The display keeps working until it reloads, then runs setup again.')) return;
+            fetch('/api/kiosks/' + delId, { method: 'DELETE' })
+                .then(function (r) { return r.json().then(function (b) { return { ok: r.ok, body: b }; }); })
+                .then(function (res) {
+                    if (!res.ok) { toast(res.body.message || 'Could not remove the kiosk.', 'danger'); return; }
+                    toast('Kiosk removed.');
+                    loadKiosks();
+                });
+        }
+    });
+
+    document.getElementById('btnSaveKiosk').addEventListener('click', function () {
+        var id = document.getElementById('edKioskId').value;
+        var scaleVal = document.getElementById('edScale').value;
+        var readerEl = document.getElementById('edReader');
+
+        fetch('/api/kiosks/' + id, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                name: document.getElementById('edName').value,
+                scaleId: scaleVal ? parseInt(scaleVal, 10) : null,
+                printerId: document.getElementById('edPrinter').value || null,
+                readerId: readerEl ? (readerEl.value || null) : null,
+                active: document.getElementById('edActive').checked
+            })
+        }).then(function (r) {
+            return r.json().then(function (b) { return { ok: r.ok, body: b }; });
+        }).then(function (res) {
+            if (!res.ok) { toast(res.body.message || 'Could not save the kiosk.', 'danger'); return; }
+            bootstrap.Modal.getInstance(document.getElementById('kioskEditModal')).hide();
+            toast('Kiosk saved. It picks up the change when it next reloads.');
+            loadKiosks();
+        });
+    });
+
+    loadScales().then(loadKiosks);
+    // A kiosk's Last Seen is the quickest way to tell a live display from a
+    // dark one, so keep the list fresh while this page is open.
+    setInterval(loadKiosks, 30000);
+</script>
+}

@@ -171,6 +171,27 @@ sudo rm -f "${INSTALL_DIR}/gatecontrollerservice.db-wal" \
            "${INSTALL_DIR}/gatecontrollerservice.db-shm"
 sudo chmod +x "${INSTALL_DIR}/GateControllerService" 2>/dev/null || true
 
+# Urls has to be written into appsettings.json, not left to ASPNETCORE_URLS in
+# the unit file. appsettings.json sits later in the configuration chain than the
+# host's environment variables, so its value wins: with --port 5241 the unit
+# would say 5241 while the app kept listening on the 5240 baked into the config,
+# and the health poll below - which uses SERVICE_PORT - would then never get an
+# answer, so the ServiceId and ServerUrl would silently never be applied.
+if command -v python3 &> /dev/null; then
+    sudo python3 -c "
+import json
+p = '${INSTALL_DIR}/appsettings.json'
+with open(p) as f:
+    config = json.load(f)
+config['Urls'] = 'http://0.0.0.0:${SERVICE_PORT}'
+with open(p, 'w') as f:
+    json.dump(config, f, indent=2)
+" && echo "  Listening on 0.0.0.0:${SERVICE_PORT}"
+elif [ "${SERVICE_PORT}" != "5240" ]; then
+    echo "  WARNING: python3 not found, so --port ${SERVICE_PORT} could not be written"
+    echo "           into appsettings.json. The service will keep listening on 5240."
+fi
+
 DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.dotnet}"
 
 # ---- systemd unit ----

@@ -31,6 +31,7 @@ public class ScaleDbContext : DbContext
     public DbSet<LoadEmailLog> LoadEmailLogs => Set<LoadEmailLog>();
     public DbSet<Card> Cards => Set<Card>();
     public DbSet<CardCustomValue> CardCustomValues => Set<CardCustomValue>();
+    public DbSet<Kiosk> Kiosks => Set<Kiosk>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -146,6 +147,15 @@ public class ScaleDbContext : DbContext
         {
             e.ToTable("Sites");
             e.HasIndex(s => s.Name).IsUnique();
+        });
+
+        modelBuilder.Entity<Kiosk>(e =>
+        {
+            e.ToTable("Kiosks");
+            // Every kiosk page load resolves the device by this column, and a
+            // duplicate would mean two displays sharing one configuration.
+            e.HasIndex(k => k.DeviceId).IsUnique();
+            e.Property(k => k.Active).HasDefaultValue(true);
         });
 
         modelBuilder.Entity<ReportTemplate>(e =>

@@ -106,6 +106,15 @@ jobs:
           cp GateControllerService/deploy/install.sh out/gate-arm64/
           cp GateControllerService/deploy/package-README.txt out/gate-arm64/README.txt
 
+      # ---- Raspberry Pi kiosk (shell only) -----------------------------------
+      # Chromium watchdog scripts, not a compiled service, so there is nothing
+      # to publish and no architecture to target - the package exists so a Pi
+      # can be set up without git, a sparse checkout, or a GitHub account.
+      - name: Stage RaspberryPiKiosk
+        run: |
+          mkdir -p out/kiosk-pi
+          cp RaspberryPiKiosk/{install.sh,uninstall.sh,kiosk-loop.sh,kiosk-start,kiosk-stop,README.md} out/kiosk-pi/
+
       - name: Assemble packages
         run: |
           set -euo pipefail
@@ -113,12 +122,14 @@ jobs:
           chmod +x out/gate-arm64/install.sh out/gate-arm64/app/GateControllerService
           chmod +x out/web-x64/foundation/Foundation.Web out/web-arm64/foundation/Foundation.Web
           chmod +x out/kiosk-arm64/app/KioskPrintAgent out/rfid-arm64/app/RfidReaderService
+          chmod +x out/kiosk-pi/{install.sh,uninstall.sh,kiosk-loop.sh,kiosk-start,kiosk-stop}
 
           tar -czf foundation-web-linux-x64.tar.gz     -C out/web-x64 .
           tar -czf foundation-web-linux-arm64.tar.gz   -C out/web-arm64 .
           tar -czf kiosk-print-agent-linux-arm64.tar.gz -C out/kiosk-arm64 .
           tar -czf rfid-reader-linux-arm64.tar.gz      -C out/rfid-arm64 .
           tar -czf gate-controller-linux-arm64.tar.gz  -C out/gate-arm64 .
+          tar -czf kiosk-pi.tar.gz                     -C out/kiosk-pi .
           (cd out/rfid-win && zip -qr ../../rfid-reader-win-x64.zip .)
 
           ls -lh foundation-web-*.tar.gz kiosk-*.tar.gz rfid-* gate-*.tar.gz
@@ -143,6 +154,15 @@ jobs:
           test -f out/rfid-win/INSTALL.bat                  || { echo "rfid wrapper missing";     exit 1; }
           test -f out/rfid-win/README.txt                   || { echo "rfid README missing";      exit 1; }
           test -f out/gate-arm64/README.txt                 || { echo "gate README missing";      exit 1; }
+
+          # The Pi kiosk package is scripts only - an installer shipped without
+          # the watchdog beside it would wire an autostart entry to nothing.
+          test -x out/kiosk-pi/install.sh                   || { echo "pi kiosk installer missing"; exit 1; }
+          test -x out/kiosk-pi/kiosk-loop.sh                || { echo "pi kiosk watchdog missing";  exit 1; }
+          test -x out/kiosk-pi/kiosk-start                  || { echo "pi kiosk start missing";     exit 1; }
+          test -x out/kiosk-pi/kiosk-stop                   || { echo "pi kiosk stop missing";      exit 1; }
+          bash -n out/kiosk-pi/install.sh                   || { echo "pi kiosk installer does not parse"; exit 1; }
+          bash -n out/kiosk-pi/kiosk-loop.sh                || { echo "pi kiosk watchdog does not parse";  exit 1; }
 
           # A database must never ship - it would overwrite a site's own data.
           if find out -name "*.db" -o -name "*.db-wal" -o -name "*.db-shm" | grep -q .; then
@@ -184,6 +204,33 @@ jobs:
           Omit DOMAIN/EMAIL for a LAN install without Let's Encrypt. The database
           is preserved across reinstalls.
 
+          ## Raspberry Pi kiosk
+
+          Chromium in kiosk mode with a watchdog that restarts it when the
+          server has been unreachable. Scripts only - no .NET, and nothing
+          architecture-specific.
+
+          \`\`\`
+          curl -fsSL -o kiosk.tar.gz https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/kiosk-pi.tar.gz
+          mkdir -p ~/foundation-kiosk && tar -xzf kiosk.tar.gz -C ~/foundation-kiosk
+          ~/foundation-kiosk/install.sh
+          sudo reboot
+          \`\`\`
+
+          Extract it somewhere permanent - the autostart entry points at
+          wherever you unpack it, so \`/tmp\` leaves a kiosk that stops working
+          at the next reboot.
+
+          The installer asks only for the server URL (plus an optional PIN and
+          language). The kiosk then asks **on its own screen**, the first time
+          it loads, which scale it weighs on, which printer to use, and which
+          card reader to listen to - the last two can each be skipped. To
+          change any of it later, press and hold the logo on the kiosk screen
+          for three seconds, or edit the kiosk under **Setup → Kiosks**.
+
+          The Pi must be set to Desktop Autologin (\`sudo raspi-config\`), or
+          the autostart entry never fires.
+
           ## Kiosk print agent (Pi)
 
           \`kiosk-print-agent-linux-arm64.tar.gz\`
@@ -220,8 +267,10 @@ jobs:
           bash /tmp/rrs/install.sh https://your-web-app-url --service-id kiosk-1
           \`\`\`
 
-          Then map the kiosk to \`<service-id>:<reader-id>\` on the web app,
-          under **Setup → Options → Card Readers**.
+          Then open the kiosk display: a kiosk that has not been set up
+          yet asks on its own screen which scale, printer and card reader
+          to use, and the reader you just installed is in that list. The
+          roster of kiosks is on the web app under **Setup → Kiosks**.
 
           ## Gate controller service
 
@@ -285,4 +334,4 @@ jobs:
             kiosk-print-agent-linux-arm64.tar.gz \
             rfid-reader-linux-arm64.tar.gz \
             rfid-reader-win-x64.zip \
-            gate-controller-linux-arm64.tar.gz
+            gate-controller-linux-arm64.tar.gz             kiosk-pi.tar.gz
