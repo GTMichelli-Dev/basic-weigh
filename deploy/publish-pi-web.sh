@@ -8,6 +8,34 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUT_DIR="$SCRIPT_DIR/out-pi"
 
+# A publish whose model has no matching migration is fatal in production:
+# Program.cs runs Migrate() at startup, EF aborts with
+# PendingModelChangesWarning, and systemd restart-loops the site. Catch it here,
+# before there is a tarball to deploy. Runs before the clean so a failed check
+# leaves the previous good output intact.
+echo "==> Checking migrations match the model..."
+if [[ "${SKIP_MODEL_CHECK:-0}" == "1" ]]; then
+  echo "  Skipped (SKIP_MODEL_CHECK=1)."
+elif ! dotnet ef --version > /dev/null 2>&1; then
+  echo "ERROR: dotnet-ef is not installed, so the check cannot run."
+  echo "       Install:  dotnet tool install --global dotnet-ef"
+  echo "       Bypass:   SKIP_MODEL_CHECK=1 bash deploy/publish-pi-web.sh"
+  exit 1
+elif ! CHECK_OUT="$(dotnet ef migrations has-pending-model-changes \
+       --project "$ROOT_DIR/web/Foundation.Web/Foundation.Web.csproj" \
+       --context ScaleDbContext 2>&1)"; then
+  echo ""
+  echo "$CHECK_OUT" | tail -6
+  echo ""
+  echo "ERROR: Refusing to publish."
+  echo "       If the model has pending changes, add the migration first:"
+  echo "         cd web/Foundation.Web && dotnet ef migrations add <Name>"
+  echo "       Publishing without it crashes every site at startup."
+  exit 1
+else
+  echo "  Migrations match the model."
+fi
+
 echo "==> Cleaning previous publish..."
 rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR/foundation"
