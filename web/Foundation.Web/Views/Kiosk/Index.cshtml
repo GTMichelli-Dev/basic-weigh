@@ -158,6 +158,43 @@
             cursor: pointer;
             accent-color: #ffc107;
         }
+        /* Simulated card reader (demo mode): stands in for a driver presenting
+           a card, so the card flow can be exercised with no reader wired. */
+        .header-sim .sim-card {
+            display: none;
+            align-items: center;
+            gap: 4px;
+            padding-left: 10px;
+            border-left: 1px solid #444;
+        }
+        .header-sim .sim-card.active { display: flex; }
+        .header-sim .sim-card input[type="text"] {
+            width: 96px;
+            padding: 3px 6px;
+            font-size: 0.75rem;
+            font-family: 'Roboto Mono', 'DejaVu Sans Mono', 'Consolas', 'Menlo', monospace;
+            color: #fff;
+            background: #222;
+            border: 1px solid #666;
+            border-radius: 4px;
+        }
+        .header-sim .sim-card button {
+            padding: 3px 10px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: #111;
+            background: #ffc107;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        body.kiosk-light .header-sim .sim-card input[type="text"] {
+            color: #222;
+            background: #fff;
+            border-color: #aaa;
+        }
+
         .header-sim .sim-weight-val {
             color: #ffc107;
             font-family: 'Roboto Mono', 'DejaVu Sans Mono', 'Liberation Mono', 'Consolas', 'Menlo', 'Courier New', monospace;
@@ -571,6 +608,58 @@
         .list-btn-select { background: #1a8c1a; border-color: #00ff41; color: #ffffff; box-shadow: 0 0 10px rgba(0,255,65,0.2); }
         .list-btn-skip { background: #555; border-color: #aaa; color: #ffffff; }
 
+        /* ===== FIRST-RUN SETUP =====
+           An unregistered display walks these steps on its own screen, so a
+           kiosk is commissioned by touching it rather than by getting the URL
+           query string right. Reuses the prompt list chrome throughout. */
+        .setup-step-label {
+            font-size: 1.3rem;
+            font-weight: 700;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: #00ff41;
+            margin-bottom: 6px;
+        }
+        .setup-hint {
+            font-size: 1.3rem;
+            color: #aaa;
+            margin-top: 12px;
+            flex: 0 0 auto;
+        }
+        .setup-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+            padding: 22px 40px;
+            border-bottom: 2px solid #444;
+            text-align: left;
+        }
+        .setup-row:last-child { border-bottom: none; }
+        .setup-row-key {
+            font-size: 1.4rem;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: #aaa;
+            flex: 0 0 auto;
+        }
+        .setup-row-val {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #ffffff;
+            text-align: right;
+            word-break: break-word;
+        }
+        /* A skipped printer or reader is a real answer, not a gap — but it
+           should not read as loudly as a configured one. */
+        .setup-row-val.is-none { color: #888; font-style: italic; font-weight: 400; }
+        body.kiosk-light .setup-step-label { color: #1e7e34; }
+        body.kiosk-light .setup-hint { color: #666; }
+        body.kiosk-light .setup-row { border-bottom-color: #ccc; }
+        body.kiosk-light .setup-row-key { color: #666; }
+        body.kiosk-light .setup-row-val { color: #222; }
+        body.kiosk-light .setup-row-val.is-none { color: #888; }
+
         /* ===== FULLSCREEN OVERLAYS ===== */
         .overlay-screen {
             position: absolute;
@@ -815,6 +904,14 @@
                 <input type="range" id="simSlider" min="0" max="200000" value="0" step="100" />
                 <label><input type="checkbox" id="simMotion" /> @L["Motion"]</label>
                 <label><input type="checkbox" id="simError" /> @L["Error"]</label>
+                @* Only appears once this kiosk is mapped to a reader — including
+                   the simulated one the setup wizard offers in demo mode — so a
+                   kiosk that chose "No card reader" behaves like one. *@
+                <span class="sim-card" id="simCardBox">
+                    <input type="text" id="simCardNumber" maxlength="50" placeholder='@L["Card #"]'
+                           autocomplete="off" spellcheck="false" />
+                    <button type="button" id="simCardScan">@L["Scan"]</button>
+                </span>
             </div>
         }
     </div>
@@ -934,6 +1031,21 @@
                     <button class="list-btn list-btn-select" id="confirm-accept">@L["Confirm & Weigh"]</button>
                 </div>
                 <div class="kiosk-confirm-label">@L["PRESS ENTER TO CONFIRM — ESC TO CANCEL"]</div>
+            </div>
+        </div>
+
+        <!-- SETUP: first-run enrollment, driven entirely from this screen.
+             Scale is asked for; printer and card reader may each be skipped. -->
+        <div id="state-setup" class="kiosk-state">
+            <div class="list-selector">
+                <div class="setup-step-label" id="setup-step-label">@L["Kiosk Setup"]</div>
+                <div class="list-title" id="setup-title">@L["Select Item"]</div>
+                <div class="list-container" id="setup-list"></div>
+                <div class="setup-hint" id="setup-hint"></div>
+                <div class="list-buttons">
+                    <button class="list-btn list-btn-cancel" id="setup-back">@L["Back"]</button>
+                    <button class="list-btn list-btn-select" id="setup-next">@L["Select"]</button>
+                </div>
             </div>
         </div>
 
@@ -1077,6 +1189,54 @@
     var kioskHasPrinter = @(((bool)(ViewBag.HasPrinter ?? false)).ToString().ToLower());
     var kioskIsBrowserPrint = kioskServiceId.toLowerCase() === 'browser' && kioskPrinterId.toLowerCase() === 'browser';
 
+    // ===== KIOSK IDENTITY =====
+    // This display's registration. A device the server doesn't recognise runs
+    // the on-screen setup wizard instead of the weighing flow; once enrolled,
+    // its scale/printer/reader come from the server and the URL carries
+    // nothing but the server address.
+    var kioskNeedsSetup = @(((bool)(ViewBag.KioskNeedsSetup ?? false)).ToString().ToLower());
+    var kioskDeviceId = '@Html.Raw((ViewBag.KioskDeviceId ?? "").ToString().Replace("'", "\\'"))';
+    var kioskName = '@Html.Raw((ViewBag.KioskName ?? "").ToString().Replace("'", "\\'"))';
+    // Enrolled through the setup wizard, as opposed to a kiosk still driven by
+    // hardware parameters on its URL.
+    var kioskRegistered = kioskDeviceId !== '';
+    var DEVICE_KEY = 'bw.kioskDevice';
+
+    // The identity lives in an HttpOnly cookie the server reads on every load;
+    // localStorage keeps a copy purely so a cleared cookie doesn't turn a
+    // commissioned kiosk back into an unconfigured one.
+    function rememberDeviceId(id) {
+        if (!id) return;
+        try { localStorage.setItem(DEVICE_KEY, id); } catch (e) { }
+    }
+    function savedDeviceId() {
+        try { return localStorage.getItem(DEVICE_KEY) || ''; } catch (e) { return ''; }
+    }
+    function newDeviceId() {
+        try {
+            if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+        } catch (e) { }
+        var s = '';
+        for (var i = 0; i < 32; i++) s += '0123456789abcdef'[Math.floor(Math.random() * 16)];
+        return s;
+    }
+    function kioskUrlWith(params) {
+        var u = new URL(window.location.href);
+        Object.keys(params).forEach(function (k) {
+            if (params[k] === null) u.searchParams.delete(k);
+            else u.searchParams.set(k, params[k]);
+        });
+        return u.toString();
+    }
+
+    rememberDeviceId(kioskDeviceId);
+
+    // ===== SIMULATED CARD READER (demo mode) =====
+    // Mapped like any other reader, so a demo kiosk exercises the same code a
+    // real one does: the wizard assigns it, and this box stands in for the
+    // driver presenting a card at it.
+    var SIM_READER_ID = 'sim:demo-reader';
+
     // ===== STATE =====
     var currentState = 'idle';
     var scaleData = { weight: 0, motion: false, error: false, ok: true };
@@ -1205,6 +1365,29 @@
     // buttons stay available for drivers without one.
     if (kioskReaderId) $('.card-hint').show();
 
+    // Simulated presentation. Feeds handleCardRead directly rather than the
+    // hub, which is the only shortcut taken: everything downstream — issued
+    // checks, weigh-in vs weigh-out, the prompts the card leaves unanswered —
+    // runs exactly as it does for a real reader.
+    if (kioskSettings.demoMode && kioskReaderId) {
+        $('#simCardBox').addClass('active');
+
+        $('#simCardScan').on('click', function () {
+            var number = ($('#simCardNumber').val() || '').trim();
+            if (!number) { $('#simCardNumber').focus(); return; }
+            handleCardRead(number);
+        });
+
+        // Enter in the box scans, and must not reach the kiosk's own key
+        // handling — Enter there means "weigh in".
+        $('#simCardNumber').on('keydown', function (e) {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            e.stopPropagation();
+            $('#simCardScan').click();
+        });
+    }
+
     function handleCardRead(cardNumber) {
         // Only accept a card from a settled ready/idle kiosk. Mid-operation
         // reads are ignored so a driver waving the card can't restart a flow
@@ -1307,7 +1490,347 @@
         showOverlay('overlay-card-message', OVERLAY_DURATION_MS * 1.5);
     }
 
-    connection.start().catch(function (err) {
+    // ===== FIRST-RUN SETUP WIZARD =====
+    // Commissioning a kiosk is done on the kiosk: pick the scale, pick a
+    // printer (or skip), pick a card reader (or skip), confirm. Printers and
+    // readers are whatever their services are announcing right now, so the
+    // list can only offer hardware the site actually has running.
+    var setupActive = false;
+    var setupSteps = [];
+    var setupStep = 0;
+    var setupIndex = 0;          // highlighted row in the current step
+    var setupItems = [];         // rows currently rendered
+    var setupChoice = { scaleId: null, printerId: null, readerId: null };
+    // Which steps carry a real answer rather than a default. A step nobody has
+    // answered highlights its first row; an answered one re-highlights the
+    // answer, so Back and a re-run of setup both show what is actually set.
+    var setupAnswered = {};
+    var setupOptions = null;     // scales + flags from /api/kiosk/setup-options
+    var setupPrinters = [];      // announced over the hub
+    var setupReaders = [];
+
+    function addSetupPrinters(data) {
+        var sid = (data && data.serviceId) || 'default';
+        var list = (data && data.printers) || [];
+        list.forEach(function (p) {
+            if (p.enabled === false) return;
+            var id = p.printerId || p.PrinterId;
+            if (!id) return;
+            var value = sid + ':' + id;
+            if (setupPrinters.some(function (x) { return x.value === value; })) return;
+            setupPrinters.push({ value: value, label: (p.displayName || p.DisplayName || id) + ' (' + sid + ')' });
+        });
+        if (setupActive && currentStepKey() === 'printer') renderSetupStep();
+    }
+
+    function addSetupReaders(data) {
+        var sid = (data && data.serviceId) || 'default';
+        var list = (data && data.readers) || [];
+        list.forEach(function (r) {
+            var id = r.readerId || r.ReaderId;
+            if (!id) return;
+            if (r.active === false || r.Active === false) return;
+            var value = sid + ':' + id;
+            if (setupReaders.some(function (x) { return x.value === value; })) return;
+            setupReaders.push({ value: value, label: (r.displayName || r.DisplayName || id) + ' (' + sid + ')' });
+        });
+        if (setupActive && currentStepKey() === 'reader') renderSetupStep();
+    }
+
+    connection.on('PrintServiceReady', addSetupPrinters);
+    connection.on('PrinterListReceived', addSetupPrinters);
+    connection.on('ReaderServiceReady', addSetupReaders);
+    connection.on('ReaderListReceived', addSetupReaders);
+
+    // Ask the services to announce themselves. Safe to call before anything is
+    // connected — a site with no print or reader service simply gets no reply,
+    // and the wizard offers Skip for both.
+    function requestSetupHardware() {
+        try {
+            connection.invoke('RequestPrinterList').catch(function () { });
+            connection.invoke('RequestReaderList').catch(function () { });
+        } catch (e) { }
+    }
+
+    function currentStepKey() {
+        return setupSteps[setupStep] ? setupSteps[setupStep].key : null;
+    }
+
+    function beginKioskSetup() {
+        setupActive = true;
+        setState('setup');
+        $('#setup-list').empty().append(
+            $('<div class="list-item list-item-none"></div>').text(T('Loading') + '…'));
+
+        $.getJSON('/api/kiosk/setup-options').done(function (opts) {
+            setupOptions = opts;
+            // A single-scale site still sees the step, pre-selected — the
+            // installer should see what the kiosk is about to weigh on.
+            setupChoice.scaleId = kioskScaleDbId || (opts.scales.length ? opts.scales[0].id : null);
+            // A kiosk re-running setup starts from what it is using today.
+            setupChoice.printerId = kioskHasPrinter ? (kioskServiceId + ':' + kioskPrinterId) : null;
+            setupChoice.readerId = kioskReaderId || null;
+            setupAnswered = {
+                scale: true,
+                printer: kioskRegistered,
+                reader: kioskRegistered
+            };
+            setupSteps = [{ key: 'scale' }, { key: 'printer' }];
+            if (opts.useCardReader) setupSteps.push({ key: 'reader' });
+            setupSteps.push({ key: 'review' });
+            setupStep = 0;
+            requestSetupHardware();
+            renderSetupStep();
+        }).fail(function () {
+            $('#setup-list').empty().append($('<div class="list-item list-item-none"></div>')
+                .text(T('Could not reach the server. Check the connection and try again.')));
+        });
+    }
+
+    // Rows for the current step, each { label, value, none }. "none" rows are
+    // the Skip answers and render muted.
+    function setupRowsFor(key) {
+        if (key === 'scale') {
+            var scales = (setupOptions && setupOptions.scales) || [];
+            if (!scales.length) {
+                return [{ label: T('No scales are set up yet — add one in the web app'), value: null, none: true }];
+            }
+            return scales.map(function (s) { return { label: s.name, value: s.id }; });
+        }
+        if (key === 'printer') {
+            return [{ label: T('Print on this screen'), value: 'Browser:Browser' }]
+                .concat(setupPrinters.map(function (p) { return { label: p.label, value: p.value }; }))
+                .concat([{ label: T('No printer'), value: null, none: true }]);
+        }
+        if (key === 'reader') {
+            // Demo mode has no reader service to announce anything, so offer a
+            // simulated one — otherwise the card flow cannot be tried at all
+            // without wiring hardware.
+            var simRow = kioskSettings.demoMode
+                ? [{ label: T('Simulated card reader (demo)'), value: SIM_READER_ID }]
+                : [];
+            return simRow
+                .concat(setupReaders.map(function (r) { return { label: r.label, value: r.value }; }))
+                .concat([{ label: T('No card reader'), value: null, none: true }]);
+        }
+        return [];
+    }
+
+    function setupChoiceFor(key) {
+        if (key === 'scale') return setupChoice.scaleId;
+        if (key === 'printer') return setupChoice.printerId;
+        if (key === 'reader') return setupChoice.readerId;
+        return null;
+    }
+
+    function renderSetupStep() {
+        var key = currentStepKey();
+        var stepNo = setupStep + 1;
+        $('#setup-step-label').text(TF('Kiosk Setup — Step {0} of {1}', stepNo, setupSteps.length));
+        $('#setup-back').toggle(setupStep > 0 || kioskDeviceId !== '');
+        $('#setup-back').text(setupStep > 0 ? T('Back') : T('Cancel'));
+
+        if (key === 'review') { renderSetupReview(); return; }
+
+        var titles = {
+            scale: T('Which Scale?'),
+            printer: T('Which Printer?'),
+            reader: T('Which Card Reader?')
+        };
+        var hints = {
+            scale: T('This kiosk weighs trucks on the scale you pick here.'),
+            printer: T('Tickets print here. Choose No printer if this kiosk does not print.'),
+            reader: T('Drivers present their card at this reader. Choose No card reader to skip.')
+        };
+        $('#setup-title').text(titles[key] || '');
+        $('#setup-hint').text(hints[key] || '');
+        $('#setup-next').text(T('Select'));
+
+        setupItems = setupRowsFor(key);
+        setupIndex = 0;
+        if (setupAnswered[key]) {
+            var chosen = setupChoiceFor(key);
+            setupItems.forEach(function (row, i) {
+                if (row.value === chosen) setupIndex = i;
+            });
+        }
+
+        // Built as elements, not markup: printer and reader labels are display
+        // names supplied by the device services, not our own strings.
+        var $list = $('#setup-list').empty().scrollTop(0);
+        setupItems.forEach(function (row, i) {
+            var $row = $('<div class="list-item"></div>').text(row.label).attr('data-i', i);
+            if (row.none) $row.addClass('list-item-none');
+            if (i === setupIndex) $row.addClass('selected');
+            $list.append($row);
+        });
+        scrollSetupIntoView();
+    }
+
+    function renderSetupReview() {
+        $('#setup-title').text(T('Ready to Finish'));
+        $('#setup-hint').text(T('You can change any of this later in the web app, under Kiosks.'));
+        $('#setup-next').text(T('Finish'));
+        setupItems = [];
+
+        var scaleName = T('Default scale');
+        ((setupOptions && setupOptions.scales) || []).forEach(function (s) {
+            if (s.id === setupChoice.scaleId) scaleName = s.name;
+        });
+        var printerLabel = setupChoice.printerId === null ? T('No printer')
+            : (setupChoice.printerId === 'Browser:Browser' ? T('Print on this screen')
+                : labelForValue(setupPrinters, setupChoice.printerId));
+
+        var rows = [
+            { k: T('Scale'), v: scaleName, none: setupChoice.scaleId === null },
+            { k: T('Printer'), v: printerLabel, none: setupChoice.printerId === null }
+        ];
+        if (setupOptions && setupOptions.useCardReader) {
+            rows.push({
+                k: T('Card Reader'),
+                v: setupChoice.readerId === null ? T('No card reader') : labelForValue(setupReaders, setupChoice.readerId),
+                none: setupChoice.readerId === null
+            });
+        }
+
+        var $list = $('#setup-list').empty().scrollTop(0);
+        rows.forEach(function (r) {
+            var $val = $('<div class="setup-row-val"></div>').text(r.v);
+            if (r.none) $val.addClass('is-none');
+            $list.append($('<div class="setup-row"></div>')
+                .append($('<div class="setup-row-key"></div>').text(r.k))
+                .append($val));
+        });
+    }
+
+    function labelForValue(list, value) {
+        if (value === SIM_READER_ID) return T('Simulated card reader (demo)');
+        for (var i = 0; i < list.length; i++) if (list[i].value === value) return list[i].label;
+        return value; // announced and then withdrawn; show the raw mapping
+    }
+
+    function scrollSetupIntoView() {
+        var el = $('#setup-list .list-item.selected')[0];
+        if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+    }
+
+    function moveSetupSelection(delta) {
+        if (!setupItems.length) return;
+        setupIndex = Math.max(0, Math.min(setupItems.length - 1, setupIndex + delta));
+        $('#setup-list .list-item').removeClass('selected')
+            .filter('[data-i="' + setupIndex + '"]').addClass('selected');
+        scrollSetupIntoView();
+    }
+
+    function setupNext() {
+        var key = currentStepKey();
+        if (key === 'review') { saveKioskSetup(); return; }
+
+        var row = setupItems[setupIndex];
+        var value = row ? row.value : null;
+        if (key === 'scale') setupChoice.scaleId = value;
+        if (key === 'printer') setupChoice.printerId = value;
+        if (key === 'reader') setupChoice.readerId = value;
+        setupAnswered[key] = true;
+
+        setupStep++;
+        renderSetupStep();
+    }
+
+    function setupBack() {
+        if (setupStep === 0) {
+            // An unregistered kiosk has nothing to go back to — it must finish
+            // the wizard before it can weigh anything.
+            if (!kioskDeviceId) return;
+            // Re-running setup on a registered kiosk: leaving drops back into
+            // normal operation with its existing configuration unchanged.
+            window.location.replace(kioskUrlWith({ setup: null, device: null }));
+            return;
+        }
+        setupStep--;
+        renderSetupStep();
+    }
+
+    function saveKioskSetup() {
+        var deviceId = kioskDeviceId || savedDeviceId() || newDeviceId();
+        $('#setup-next').prop('disabled', true).text(T('Saving') + '…');
+
+        $.ajax({
+            url: '/api/kiosk/register',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                deviceId: deviceId,
+                name: kioskName || null,
+                scaleId: setupChoice.scaleId,
+                printerId: setupChoice.printerId,
+                readerId: setupChoice.readerId
+            })
+        }).done(function (result) {
+            rememberDeviceId(result.deviceId);
+            // Reload clean: the server now answers for this device, so the
+            // page comes back fully configured with nothing in the URL.
+            window.location.replace(kioskUrlWith({ setup: null, device: null }));
+        }).fail(function (xhr) {
+            $('#setup-next').prop('disabled', false).text(T('Finish'));
+            var msg = (xhr.responseJSON && xhr.responseJSON.message) || T('Save Failed');
+            $('#setup-hint').text(msg);
+        });
+    }
+
+    $('#setup-list').on('click', '.list-item', function () {
+        var i = parseInt($(this).data('i'), 10);
+        if (isNaN(i)) return;
+        setupIndex = i;
+        $('#setup-list .list-item').removeClass('selected');
+        $(this).addClass('selected');
+    });
+    $('#setup-next').on('click', setupNext);
+    $('#setup-back').on('click', setupBack);
+
+    // Hidden re-entry: press and hold the header logo for three seconds. A
+    // kiosk has no menu, and an installer swapping a printer should not have
+    // to find a keyboard or the web app to re-point it.
+    (function () {
+        var holdTimer = null;
+        var $logo = $('#kiosk-header img');
+        function start() {
+            clearTimeout(holdTimer);
+            holdTimer = setTimeout(function () {
+                if (setupActive) return;
+                window.location.assign(kioskUrlWith({ setup: 'true' }));
+            }, 3000);
+        }
+        function cancel() { clearTimeout(holdTimer); }
+        $logo.on('mousedown touchstart', start);
+        $logo.on('mouseup mouseleave touchend touchcancel', cancel);
+    })();
+
+    // Decide, once, what this page load is: normal weighing, a cookie that
+    // needs restoring from localStorage, or first-run setup.
+    (function () {
+        if (!kioskNeedsSetup) return;
+
+        var saved = savedDeviceId();
+        var triedRestore = false;
+        try { triedRestore = sessionStorage.getItem('bw.kioskRestored') === '1'; } catch (e) { }
+
+        // Known device, lost cookie: hand the id back to the server rather
+        // than making someone re-commission a working kiosk.
+        if (saved && !kioskDeviceId && !triedRestore) {
+            try { sessionStorage.setItem('bw.kioskRestored', '1'); } catch (e) { }
+            window.location.replace(kioskUrlWith({ device: saved }));
+            return;
+        }
+        beginKioskSetup();
+    })();
+
+    connection.start().then(function () {
+        // The wizard usually opens before the hub is up, so its first request
+        // for printers and readers goes nowhere. Ask again now that it can be
+        // heard; the lists re-render in place as services answer.
+        if (setupActive) requestSetupHardware();
+    }).catch(function (err) {
         console.error('SignalR error:', err);
         // Fallback to polling if SignalR fails
         setInterval(function () {
@@ -1321,7 +1844,10 @@
     });
 
     // ===== NO-PRINTER WARNING =====
-    if (!kioskHasPrinter && !kioskSettings.demoMode) {
+    // Only for a kiosk that never chose: one commissioned through the setup
+    // wizard may have picked "No printer" deliberately, and nagging it on
+    // every load would make a supported answer feel like a fault.
+    if (!kioskHasPrinter && !kioskSettings.demoMode && !kioskRegistered && !setupActive) {
         // Show warning overlay that blocks the kiosk until acknowledged
         var warningHtml = '<div id="noPrinterWarning" style="' +
             'position:fixed;top:0;left:0;width:100%;height:100%;z-index:99999;' +
@@ -1333,11 +1859,8 @@
             // catalog so a translator moves the emphasis with the word.
             '<p style="font-size:16px;color:#333;margin-bottom:16px;">' +
             TF('This kiosk does not have a printer assigned. Tickets will {0}not{1} be printed.', '<strong>', '</strong>') + '</p>' +
-            '<p style="font-size:14px;color:#666;margin-bottom:24px;">' + escHtml(T('To configure printing, add printer parameters to the kiosk URL:')) + '</p>' +
-            '<code style="display:block;background:#f0f0f0;padding:10px;border-radius:6px;font-size:13px;margin-bottom:24px;word-break:break-all;">' +
-            window.location.origin + '/Kiosk?service-id=<em>your-service</em>&amp;printer-id=<em>your-printer</em></code>' +
-            '<p style="font-size:13px;color:#666;margin-bottom:24px;">' +
-            TF('Use {0} to print via browser.', '<code>service-id=Browser&amp;printer-id=Browser</code>') + '</p>' +
+            '<p style="font-size:14px;color:#666;margin-bottom:24px;">' +
+            escHtml(T('Press and hold the logo at the top of this screen for three seconds to run kiosk setup and pick a printer.')) + '</p>' +
             '<button onclick="document.getElementById(\'noPrinterWarning\').remove();" ' +
             'style="padding:12px 40px;font-size:18px;background:#0d6efd;color:#fff;border:none;border-radius:8px;cursor:pointer;">' + escHtml(T('OK')) + '</button>' +
             '</div></div>';
@@ -1412,6 +1935,11 @@
     }
 
     function handleScaleChange() {
+        // Setup owns the screen until it finishes. A kiosk is usually
+        // commissioned with no scale wired yet, so scale errors and weight
+        // changes must not pull the installer out of the wizard.
+        if (setupActive) return;
+
         // Persistent error display
         if (scaleData.error && (currentState === 'idle' || currentState === 'ready')) {
             setState('scale-error');
@@ -2544,6 +3072,22 @@
 
     $(document).on('keydown', function (e) {
         var key = e.key;
+
+        // Typing into a field is not kiosk input. Without this, a digit typed
+        // into the demo card box would also start ticket entry, and the field
+        // would never receive it.
+        var tag = ((e.target && e.target.tagName) || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+        // Setup wizard: a commissioning tech may well have a keyboard plugged
+        // in, and it owns every key while it is up.
+        if (setupActive) {
+            if (key === 'ArrowDown') { moveSetupSelection(1); e.preventDefault(); }
+            else if (key === 'ArrowUp') { moveSetupSelection(-1); e.preventDefault(); }
+            else if (key === 'Enter') { setupNext(); e.preventDefault(); }
+            else if (key === 'Escape') { setupBack(); e.preventDefault(); }
+            return;
+        }
 
         // Numeric custom-field prompt: digits feed the readout
         if (isNumberPromptActive() && (/^\d$/.test(key) || key === '.')) {

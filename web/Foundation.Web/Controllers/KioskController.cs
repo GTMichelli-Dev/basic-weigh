@@ -29,30 +29,274 @@ public class KioskController : Controller
         _t = t;
     }
 
+    /// <summary>Cookie holding this display's kiosk identity. Long-lived and
+    /// HttpOnly; the page mirrors the id to localStorage and restores it with
+    /// ?device= if the cookie is ever lost.</summary>
+    public const string DeviceCookie = "KioskDevice";
+
     public IActionResult Index([FromQuery(Name = "service-id")] string? serviceId = null,
                                [FromQuery(Name = "printer-id")] string? printerId = null,
                                [FromQuery(Name = "scale-id")] int? scaleId = null,
-                               [FromQuery(Name = "reader-id")] string? readerId = null)
+                               [FromQuery(Name = "reader-id")] string? readerId = null,
+                               [FromQuery(Name = "device")] string? device = null,
+                               [FromQuery(Name = "setup")] bool setupRequested = false)
     {
         var setup = _setupCache.Get();
-        ViewBag.ServiceId = serviceId ?? "";
-        ViewBag.PrinterId = printerId ?? "";
-        ViewBag.HasPrinter = !string.IsNullOrEmpty(serviceId) && !string.IsNullOrEmpty(printerId);
 
-        // Card reader this kiosk listens to, as "serviceId:readerId" (Launch
-        // Kiosk dialog fills it in). Empty means this kiosk ignores card reads
-        // and runs the normal touchscreen flow.
-        ViewBag.ReaderId = setup.UseCardReader ? (readerId ?? "") : "";
+        // A URL that carries its own hardware mapping is a kiosk installed
+        // before self-enrollment existed. It keeps working exactly as it did,
+        // and is never pushed into the setup wizard.
+        var urlConfigured = !string.IsNullOrEmpty(serviceId) || !string.IsNullOrEmpty(printerId)
+                            || scaleId.HasValue || !string.IsNullOrEmpty(readerId);
 
-        // Each kiosk device is mapped to one site scale, chosen in the Launch
-        // Kiosk dialog (?scale-id=). Falls back to the default (first active)
-        // scale so a bare /Kiosk URL still works on single-scale sites.
-        var scale = SiteScales.Resolve(_db, scaleId);
+        // Registered kiosks supply everything below; the URL still wins where
+        // it is explicit, so a one-off override is always possible.
+        var deviceId = (device ?? Request.Cookies[DeviceCookie] ?? "").Trim();
+        Kiosk? kiosk = null;
+        if (deviceId.Length > 0)
+        {
+            kiosk = _db.Kiosks.FirstOrDefault(k => k.DeviceId == deviceId && k.Active);
+            if (kiosk != null)
+            {
+                kiosk.LastSeenAt = DateTime.UtcNow;
+                _db.SaveChanges();
+                // Re-issue the cookie so a device restored via ?device= (or one
+                // approaching the browser's cookie lifetime cap) stays known.
+                WriteDeviceCookie(kiosk.DeviceId);
+            }
+        }
+
+        // The wizard runs for a device we don't recognise, and on demand when
+        // an installer asks for it from the kiosk itself.
+        ViewBag.KioskNeedsSetup = setupRequested || (kiosk == null && !urlConfigured);
+        ViewBag.KioskDeviceId = kiosk?.DeviceId ?? "";
+        ViewBag.KioskName = kiosk?.Name ?? "";
+
+        // Printer: "serviceId:printerId" on the kiosk record, or the legacy
+        // pair of query parameters. Null/absent means this kiosk prints nothing.
+        var kioskPrinter = SplitPair(kiosk?.PrinterId);
+        var effectiveService = serviceId ?? kioskPrinter.Left;
+        var effectivePrinter = printerId ?? kioskPrinter.Right;
+        ViewBag.ServiceId = effectiveService ?? "";
+        ViewBag.PrinterId = effectivePrinter ?? "";
+        ViewBag.HasPrinter = !string.IsNullOrEmpty(effectiveService) && !string.IsNullOrEmpty(effectivePrinter);
+
+        // Card reader this kiosk listens to, as "serviceId:readerId". Empty
+        // means this kiosk ignores card reads and runs the touchscreen flow.
+        ViewBag.ReaderId = setup.UseCardReader ? (readerId ?? kiosk?.ReaderId ?? "") : "";
+
+        // Each kiosk device is mapped to one site scale. A stored scale that
+        // has since been deleted is dropped rather than passed through, so the
+        // kiosk falls back to the default instead of coming up weighing on
+        // nothing. A bare /Kiosk URL lands on the default too, which is what a
+        // single-scale site wants.
+        var kioskScaleId = kiosk?.ScaleId is int ks && _db.Scales.Any(s => s.Id == ks) ? ks : (int?)null;
+        var scale = SiteScales.Resolve(_db, scaleId ?? kioskScaleId);
         ViewBag.KioskScaleDbId = scale?.Id ?? 0;
         ViewBag.KioskScaleName = scale?.Name ?? "";
         // Hardware feed id, used to filter SignalR ScaleWeight pushes.
         ViewBag.ScaleId = scale?.HardwareId ?? "";
         return View(setup);
+    }
+
+    /// <summary>Cookie holding a validated kiosk PIN for this display. Written
+    /// with a long life and refreshed on every kiosk load, so a commissioned
+    /// kiosk is asked once and never again. It lives in the browser profile
+    /// beside the device id, so a replaced Pi asks for both again.</summary>
+    public const string PinCookie = "KioskPin";
+
+    /// <summary>How long a validated PIN is remembered. Browsers cap cookie
+    /// lifetime near 400 days; the middleware re-issues it on every load, so
+    /// in practice it lasts as long as the kiosk keeps being used.</summary>
+    public static readonly TimeSpan PinCookieLife = TimeSpan.FromDays(400);
+
+    /// <summary>
+    /// The kiosk's own PIN screen. A kiosk has no keyboard and cannot use the
+    /// operator login page, so a display that has not been unlocked yet lands
+    /// here and the installer taps the PIN in on the numpad. Reachable without
+    /// a PIN — it is the thing that gets you one.
+    /// </summary>
+    [HttpGet("/Kiosk/Pin")]
+    public IActionResult Pin([FromQuery] string? returnUrl = null)
+    {
+        var setup = _setupCache.Get();
+        // Nothing to unlock when login is off; never leave a dead screen up.
+        if (!setup.UseLogin) return Redirect(SafeReturnUrl(returnUrl));
+
+        ViewBag.ReturnUrl = SafeReturnUrl(returnUrl);
+        return View(setup);
+    }
+
+    [HttpPost("/Kiosk/Pin")]
+    [ValidateAntiForgeryToken]
+    public IActionResult Pin([FromForm] string? pin, [FromForm] string? returnUrl)
+    {
+        var setup = _setupCache.Get();
+        var target = SafeReturnUrl(returnUrl);
+        if (!setup.UseLogin) return Redirect(target);
+
+        if ((pin ?? "") != (setup.KioskCode ?? ""))
+        {
+            _log.LogWarning("Kiosk PIN rejected from {Ip}", HttpContext.Connection.RemoteIpAddress);
+            ViewBag.Error = "Incorrect PIN — try again.";
+            ViewBag.ReturnUrl = target;
+            return View(setup);
+        }
+
+        WritePinCookie(HttpContext, pin!);
+        return Redirect(target);
+    }
+
+    /// <summary>
+    /// Only ever bounce back to a kiosk path on this site. Without this, the
+    /// PIN screen would be an open redirect: a crafted returnUrl could send a
+    /// display somewhere else the moment the right PIN was entered.
+    /// </summary>
+    private static string SafeReturnUrl(string? returnUrl)
+    {
+        if (string.IsNullOrWhiteSpace(returnUrl)) return "/Kiosk";
+        // Must be a site-relative path, and "//host" is not one.
+        if (!returnUrl.StartsWith('/') || returnUrl.StartsWith("//")) return "/Kiosk";
+        // Returning to the PIN screen itself would just ask again.
+        if (UnderPath(returnUrl, "/Kiosk/Pin")) return "/Kiosk";
+        // The signature pad is the other keyboard-less tablet sharing this PIN,
+        // so it may be returned to as well; anything else falls back.
+        var allowed = UnderPath(returnUrl, "/Kiosk") || UnderPath(returnUrl, "/SignaturePad");
+        return allowed ? returnUrl : "/Kiosk";
+    }
+
+    /// <summary>
+    /// Whether a URL is the given path or something beneath it, respecting
+    /// segment boundaries. A plain StartsWith would let "/Kiosks" — the admin
+    /// management page — pass as "/Kiosk".
+    /// </summary>
+    private static bool UnderPath(string url, string prefix) =>
+        url.Equals(prefix, StringComparison.OrdinalIgnoreCase)
+        || url.StartsWith(prefix + "/", StringComparison.OrdinalIgnoreCase)
+        || url.StartsWith(prefix + "?", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Remember a validated PIN on this display. Shared with the
+    /// middleware, which refreshes it on every kiosk load.</summary>
+    public static void WritePinCookie(HttpContext context, string pin)
+    {
+        context.Response.Cookies.Append(PinCookie, pin, new CookieOptions
+        {
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            Expires = DateTimeOffset.UtcNow.Add(PinCookieLife)
+        });
+    }
+
+    /// <summary>Split "serviceId:thingId" into its two halves. Anything that
+    /// isn't a pair yields nulls, so a malformed value disables the feature
+    /// rather than half-configuring it.</summary>
+    private static (string? Left, string? Right) SplitPair(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return (null, null);
+        var i = value.IndexOf(':');
+        if (i <= 0 || i == value.Length - 1) return (null, null);
+        return (value[..i], value[(i + 1)..]);
+    }
+
+    private void WriteDeviceCookie(string deviceId)
+    {
+        Response.Cookies.Append(DeviceCookie, deviceId, new CookieOptions
+        {
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            // Browsers cap cookie lifetime around 400 days; the page keeps a
+            // localStorage copy and restores the cookie if it is ever dropped.
+            Expires = DateTimeOffset.UtcNow.AddDays(400)
+        });
+    }
+
+    /// <summary>
+    /// Everything the on-screen setup wizard offers: the site's scales, and
+    /// whether the card-reader step applies at all. Printers and readers are
+    /// announced over SignalR by the services themselves, so the wizard
+    /// collects those live rather than from here.
+    /// </summary>
+    [HttpGet("api/kiosk/setup-options")]
+    public IActionResult SetupOptions()
+    {
+        var setup = _setupCache.Get();
+        var scales = _db.Scales.Where(s => s.Active)
+            .OrderBy(s => s.SortOrder).ThenBy(s => s.Name)
+            .Select(s => new { id = s.Id, name = s.Name, siteId = s.SiteId })
+            .ToList();
+
+        return Json(new { scales, useCardReader = setup.UseCardReader });
+    }
+
+    /// <summary>
+    /// Enroll (or re-configure) the display running the wizard. The device id
+    /// is generated by the browser; everything else is what the installer just
+    /// picked on screen. Printer and reader are both optional — a kiosk that
+    /// prints nothing and reads no cards is a valid kiosk.
+    /// </summary>
+    [HttpPost("api/kiosk/register")]
+    public IActionResult Register([FromBody] KioskRegisterRequest request)
+    {
+        var deviceId = (request.DeviceId ?? "").Trim();
+        // Opaque, browser-generated, and used as a lookup key — keep it to a
+        // shape we are willing to store and echo back into a page.
+        if (deviceId.Length is < 8 or > 64 || !deviceId.All(c => char.IsAsciiLetterOrDigit(c) || c is '-'))
+            return BadRequest(new { message = _t["That device id is not valid."] });
+
+        var kiosk = _db.Kiosks.FirstOrDefault(k => k.DeviceId == deviceId);
+        if (kiosk == null)
+        {
+            kiosk = new Kiosk { DeviceId = deviceId, CreatedAt = DateTime.UtcNow };
+            _db.Kiosks.Add(kiosk);
+        }
+
+        var name = (request.Name ?? "").Trim();
+        kiosk.Name = name.Length > 0
+            ? (name.Length > 100 ? name[..100] : name)
+            : (kiosk.Name.Length > 0 ? kiosk.Name : NextKioskName());
+
+        // A scale that has since been deleted or deactivated must not be
+        // written back — the kiosk would come up pointing at nothing.
+        kiosk.ScaleId = request.ScaleId.HasValue
+            && _db.Scales.Any(s => s.Id == request.ScaleId.Value && s.Active)
+                ? request.ScaleId
+                : null;
+
+        kiosk.PrinterId = NormalizePair(request.PrinterId);
+        kiosk.ReaderId = _setupCache.Get().UseCardReader ? NormalizePair(request.ReaderId) : null;
+        kiosk.Active = true;
+        kiosk.LastSeenAt = DateTime.UtcNow;
+        _db.SaveChanges();
+
+        WriteDeviceCookie(kiosk.DeviceId);
+        _log.LogInformation("Kiosk {Name} registered (device {Device}, scale {Scale}, printer {Printer}, reader {Reader})",
+            kiosk.Name, kiosk.DeviceId, kiosk.ScaleId, kiosk.PrinterId ?? "none", kiosk.ReaderId ?? "none");
+
+        return Ok(new { ok = true, id = kiosk.Id, name = kiosk.Name, deviceId = kiosk.DeviceId });
+    }
+
+    /// <summary>"serviceId:thingId" or null. Blank, "none" and anything that
+    /// isn't a pair all mean "this kiosk has none".</summary>
+    private static string? NormalizePair(string? value)
+    {
+        var v = (value ?? "").Trim();
+        if (v.Length == 0 || v.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
+        var parts = SplitPair(v);
+        if (parts.Left == null || parts.Right == null) return null;
+        return v.Length > 100 ? null : v;
+    }
+
+    /// <summary>"Kiosk 1", "Kiosk 2", … — the first number not already taken.
+    /// A kiosk has no keyboard, so it never asks the installer to type a name;
+    /// renaming happens on the web app's Kiosks page.</summary>
+    private string NextKioskName()
+    {
+        var taken = _db.Kiosks.Select(k => k.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        for (var n = 1; ; n++)
+        {
+            var candidate = $"Kiosk {n}";
+            if (!taken.Contains(candidate)) return candidate;
+        }
     }
 
     [HttpGet("api/kiosk/lists")]
@@ -731,6 +975,19 @@ public class KioskController : Controller
                 Value = v.Value
             });
         }
+    }
+
+    /// <summary>What the on-screen setup wizard sends when a display enrolls
+    /// itself. PrinterId and ReaderId are null when the installer chose Skip.</summary>
+    public class KioskRegisterRequest
+    {
+        public string? DeviceId { get; set; }
+        public string? Name { get; set; }
+        public int? ScaleId { get; set; }
+        /// <summary>"serviceId:printerId", "Browser:Browser", or null for none.</summary>
+        public string? PrinterId { get; set; }
+        /// <summary>"serviceId:readerId", or null for none.</summary>
+        public string? ReaderId { get; set; }
     }
 
     public class KioskCardRequest

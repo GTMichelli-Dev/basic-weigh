@@ -2,7 +2,7 @@
 
 Pi-side scripts that launch Chromium in kiosk mode pointed at the Foundation web app's `/Kiosk` page, with a watchdog that restarts the browser when the server has been unreachable for 30 seconds. One Pi per kiosk display — one TV/monitor, one Chromium, one URL.
 
-Unlike the device-side .NET services, this is **not** distributed via a standalone dist repo. The scripts live in the monorepo and the Pi clones it directly via a one-shot bootstrap pasted into [Raspberry Pi Connect](https://connect.raspberrypi.com/)'s web shell. Operate the Pi through that same shell once it's running.
+Unlike the device-side .NET services, this has no dist repo of its own — the scripts live in the monorepo. A Pi gets them either from the `kiosk-pi.tar.gz` release asset (no git required) or by cloning the monorepo through a one-shot bootstrap pasted into [Raspberry Pi Connect](https://connect.raspberrypi.com/)'s web shell. Operate the Pi through that same shell once it's running.
 
 ## How it works
 
@@ -23,7 +23,24 @@ Pi boots → desktop autostart → kiosk-loop.sh
 
 ## Deploy
 
-The Pi clones `foundation` directly via a one-shot bootstrap pasted into Pi Connect's web shell, using partial + sparse checkout so only the `RaspberryPiKiosk/` folder ends up on disk (a few MiB total instead of the full repo). `foundation` is a public repo, so no GitHub credentials are needed for the clone.
+### From a release (no git needed)
+
+Simplest path, and the one to use on a Pi OS Lite image with no git installed:
+
+```bash
+curl -fsSL -o kiosk.tar.gz https://github.com/GTMichelli-Dev/foundation/releases/latest/download/kiosk-pi.tar.gz
+mkdir -p ~/foundation-kiosk && tar -xzf kiosk.tar.gz -C ~/foundation-kiosk
+~/foundation-kiosk/install.sh
+sudo reboot
+```
+
+Unpack it somewhere permanent. The autostart entry points at wherever the scripts land, so extracting to `/tmp` gives you a kiosk that stops working at the next reboot.
+
+To update, re-download over the same folder and re-run `install.sh`.
+
+### From a checkout
+
+Useful when you want to `git pull` updates rather than re-download. The Pi clones `foundation` directly via a one-shot bootstrap pasted into Pi Connect's web shell, using partial + sparse checkout so only the `RaspberryPiKiosk/` folder ends up on disk (a few MiB total instead of the full repo). `foundation` is a public repo, so no GitHub credentials are needed for the clone.
 
 ### Bootstrap
 
@@ -79,17 +96,30 @@ sudo reboot
 `install.sh` prompts for:
 
 1. **Server URL** — required. e.g. `http://truckscale.local`. Verified before saving.
-2. **Kiosk PIN** — optional. Required only when the Foundation server has *User Login* enabled. Becomes `?pin=<value>` on the kiosk URL; the server stores it as a 24-hour cookie so it's only read once per cookie lifetime.
-3. **Service ID** — optional. Selects which Print/Camera Service instance handles this kiosk's tickets and camera captures. Enter `Browser` (or leave blank) to print via the browser instead of hardware. Otherwise enter the service ID shown on the print agent's Setup page (e.g. `office-1`).
-4. **Printer ID** — optional. Picks which physical printer the service uses (e.g. `Zebra_LP2844`, `BIXOLON_BK3`). Set to `Browser` when Service ID is `Browser`.
+2. **Language** — optional. Pins this kiosk to English or Spanish regardless of the site default.
 
-The installer assembles these into a single URL like:
+The **kiosk PIN is not asked for here**. When the server has *User Login* enabled, the kiosk shows its own numpad the first time it loads; the PIN is tapped in once and remembered in the Chromium profile from then on. That keeps the credential off the Pi's disk, and means a replaced Pi asks for it again — along with re-running kiosk setup, since both live in the same profile.
+
+An existing `KIOSK_PIN` in the config is carried forward untouched, so re-running the installer never makes a working kiosk start asking. Delete that line from the config to move the kiosk onto the on-screen prompt.
+
+Hardware is **not** asked for here. The first time the kiosk loads it does not recognise itself, so it runs a short setup on its own screen:
 
 ```
-http://truckscale.local/Kiosk?service-id=office-1&printer-id=BIXOLON_BK3&pin=12345
+  Which scale?        → the site scales, from the web app
+  Which printer?      → print on this screen, a connected printer, or none
+  Which card reader?  → a connected reader, or none
+  Ready to finish     → review, then Finish
 ```
 
-…and writes it to the config as `KIOSK_URL`. The watchdog launches Chromium against that full URL on every restart. Re-running `install.sh` re-prompts each value with the previous answer as the default, so changing just one parameter is a couple of Enter-presses.
+The printer and reader lists are whatever the Print and RFID Reader Services are announcing at that moment, so the kiosk can only be pointed at hardware the site is actually running — and both may be skipped outright. The kiosk saves the answers against a device id of its own and comes back fully configured, with nothing but the server address in its URL:
+
+```
+http://truckscale.local/Kiosk
+```
+
+To change any of it later, press and hold the logo at the top of the kiosk screen for three seconds to run setup again, or edit the kiosk from the web app under **Setup → Kiosks**.
+
+Re-running `install.sh` re-prompts the URL, PIN and language with the previous answers as defaults; it leaves the kiosk's own hardware choices alone.
 
 After the prompts, the script installs Chromium + curl + unclutter and writes a desktop autostart entry that launches the watchdog at every login.
 

@@ -1,3 +1,4 @@
+using Foundation.Web.Controllers;
 using Foundation.Web.Data;
 using Foundation.Web.Hubs;
 using Foundation.Web.Services;
@@ -282,7 +283,19 @@ app.Use(async (context, next) =>
     // Kiosk / signature pad access: check PIN if UseLogin is on. The signature
     // pad is an unattended tablet like the kiosk, so it shares the kiosk PIN
     // (and cookie). /api/signature/ is included so the pad can upload.
-    if (path.StartsWith("/Kiosk") || path.StartsWith("/api/kiosk/") ||
+    // The kiosk's own PIN screen has to be reachable without a PIN — it is how
+    // an unattended display gets one. Everything else under /Kiosk stays gated.
+    if (path.StartsWith("/Kiosk/Pin", StringComparison.OrdinalIgnoreCase))
+    {
+        await next();
+        return;
+    }
+
+    // "/Kiosk" is matched exactly (not as a prefix) so the admin-only Kiosks
+    // management page at /Kiosks does not inherit the kiosk's PIN gate and
+    // become reachable with a driver-facing PIN.
+    if (path.Equals("/Kiosk", StringComparison.Ordinal) || path.StartsWith("/Kiosk/", StringComparison.Ordinal) ||
+        path.StartsWith("/api/kiosk/") ||
         path.StartsWith("/SignaturePad") || path.StartsWith("/api/signature/"))
     {
         var db = context.RequestServices.GetRequiredService<ScaleDbContext>();
@@ -290,22 +303,29 @@ app.Use(async (context, next) =>
         if (setup.UseLogin)
         {
             var pin = context.Request.Query["pin"].FirstOrDefault()
-                      ?? context.Request.Cookies["KioskPin"];
+                      ?? context.Request.Cookies[KioskController.PinCookie];
             if (pin != setup.KioskCode)
             {
-                context.Response.Redirect("/Account/Login");
+                // A kiosk is a touchscreen in a yard: it has no keyboard and
+                // cannot use the operator login page. Send the display to its
+                // own numpad instead. API calls get a status code — there is
+                // no one there to read a redirect.
+                if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    return;
+                }
+
+                var target = context.Request.Path + context.Request.QueryString;
+                context.Response.Redirect("/Kiosk/Pin?returnUrl=" + Uri.EscapeDataString(target));
                 return;
             }
-            // Set cookie so subsequent requests don't need ?pin=
-            if (!context.Request.Cookies.ContainsKey("KioskPin"))
-            {
-                context.Response.Cookies.Append("KioskPin", pin, new CookieOptions
-                {
-                    HttpOnly = true,
-                    SameSite = SameSiteMode.Strict,
-                    Expires = DateTimeOffset.UtcNow.AddHours(24)
-                });
-            }
+
+            // Re-issued on every load rather than only when missing, so a
+            // kiosk that stays in service is asked for its PIN exactly once.
+            // The cookie lives in the display's browser profile, so a replaced
+            // Pi asks again — as does one whose profile has been wiped.
+            KioskController.WritePinCookie(context, pin!);
         }
         await next();
         return;

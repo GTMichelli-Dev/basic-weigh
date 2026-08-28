@@ -1,4 +1,4 @@
-@inject Foundation.Web.Data.ScaleDbContext Db
+﻿@inject Foundation.Web.Data.ScaleDbContext Db
 @{
     var appSetup = Db.AppSetup.FirstOrDefault();
     var appName = appSetup?.Header1 ?? "Foundation";
@@ -107,11 +107,16 @@
                             <a class="nav-link" asp-controller="Setup" asp-action="Index">Setup</a>
                         </li>
                         }
-                        @if (appSetup?.DemoMode == true)
+                        @* Kiosks are commissioned by opening this on the display itself,
+                           so the link is not demo-only - it is how a kiosk gets started. *@
+                        @if (isManagerOrAbove)
                         {
                         <li class="nav-item">
-                            <a class="nav-link" href="#" onclick="showKioskPrinterPicker(); return false;">Kiosk</a>
+                            <a class="nav-link" href="#" onclick="showKioskPrinterPicker(); return false;" title="Open the kiosk page in a new tab">Kiosk</a>
                         </li>
+                        }
+                        @if (appSetup?.DemoMode == true)
+                        {
                         <li class="nav-item">
                             <a class="nav-link" href="/Mobile" target="_blank" title="Driver self-service weighing on a phone">Mobile</a>
                         </li>
@@ -398,9 +403,13 @@
         </script>
     }
 
-    @if (appSetup?.DemoMode == true)
+    @if (isManagerOrAbove)
     {
-    <!-- Kiosk Printer Picker Modal -->
+    @* Launch Kiosk. A kiosk configures itself on its own screen the first time
+       it loads - scale, printer and card reader - so there is nothing to pick
+       here and nothing to get wrong in a URL. The PIN is asked for rather than
+       rendered into the page, so the kiosk code is not sitting in the HTML of
+       every page an operator loads. *@
     <div class="modal fade" id="kioskPrinterPickerModal" tabindex="-1">
         <div class="modal-dialog modal-dialog-centered">
             <div class="modal-content">
@@ -409,25 +418,22 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <p class="small text-muted mb-2">Choose a printer for this kiosk session, or select Browser to print via the browser.</p>
-                    <select id="kioskPrinterPickerSelect" class="form-select">
-                        <option value="Browser:Browser">Send to Browser (default)</option>
-                    </select>
-                    <div id="kioskPrinterPickerLoading" class="text-center text-muted small mt-2" style="display:none;">
-                        <i class="fa fa-spinner fa-spin"></i> Loading printers...
-                    </div>
-                    <div id="kioskScalePickerWrap" class="mt-2" style="display:none;">
-                        <label class="form-label mb-0 small fw-bold" for="kioskScalePickerSelect">Scale for this kiosk</label>
-                        <select id="kioskScalePickerSelect" class="form-select"></select>
-                        <div class="form-text small">This kiosk reads and records weights from the selected scale.</div>
-                    </div>
-                    <div id="kioskReaderPickerWrap" class="mt-2" style="display:none;">
-                        <label class="form-label mb-0 small fw-bold" for="kioskReaderPickerSelect">Card reader for this kiosk</label>
-                        <select id="kioskReaderPickerSelect" class="form-select">
-                            <option value="">— None —</option>
-                        </select>
-                        <div class="form-text small">Cards presented at this reader weigh the truck on this kiosk.</div>
-                    </div>
+                    <p class="small text-muted mb-2">
+                        Opens the kiosk page in a new tab. A display that has not been set up asks for
+                        its scale, printer and card reader on its own screen; kiosks that have
+                        registered are listed under <a href="/Kiosks">Setup &rarr; Kiosks</a>.
+                    </p>
+                    @if (useLogin)
+                    {
+                        <label class="form-label mb-0 small fw-bold" for="kioskPinInput">Kiosk PIN</label>
+                        <input type="password" class="form-control" id="kioskPinInput" inputmode="numeric"
+                               autocomplete="off" placeholder="Kiosk PIN" />
+                        <div class="form-text small">
+                            Required because User Login is on. It is the Kiosk Code from Setup &rarr; System,
+                            and the kiosk keeps it as a 24-hour cookie once it has been used.
+                        </div>
+                        <div class="alert alert-danger py-1 px-2 mt-2 mb-0 small" id="kioskPinError" style="display:none;"></div>
+                    }
                 </div>
                 <div class="modal-footer py-1">
                     <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
@@ -436,150 +442,52 @@
             </div>
         </div>
     </div>
-    <script>
-    var _kioskPrinterConnection = null;
-    var _kioskPrintersLoaded = false;
 
-    var _kioskScalesLoaded = false;
-    var _kioskReadersLoaded = false;
-    var _kioskUseCardReader = @((appSetup?.UseCardReader == true).ToString().ToLower());
+    <script>
+    var _kioskUseLogin = @(useLogin.ToString().ToLower());
 
     function showKioskPrinterPicker() {
-        var modal = new bootstrap.Modal(document.getElementById('kioskPrinterPickerModal'));
-        modal.show();
+        var err = document.getElementById('kioskPinError');
+        if (err) err.style.display = 'none';
+        new bootstrap.Modal(document.getElementById('kioskPrinterPickerModal')).show();
 
-        // Card reader mapping (card weighing only). Readers are announced by
-        // the RFID Reader Service over the same hub the printers use.
-        if (_kioskUseCardReader && !_kioskReadersLoaded) {
-            _kioskReadersLoaded = true;
-            var readerConn = new signalR.HubConnectionBuilder().withUrl('/scaleHub').build();
-            readerConn.on('ReaderServiceReady', function (data) { addReadersToDropdown(data); });
-            readerConn.on('ReaderListReceived', function (data) { addReadersToDropdown(data); });
-            readerConn.start().then(function () {
-                readerConn.invoke('RequestReaderList').catch(function () {});
-            }).catch(function () {});
-        }
-
-        // Scale mapping for this kiosk device (multi-scale sites). The picker
-        // only appears when more than one scale is active; the choice rides
-        // the kiosk URL and is remembered per device via localStorage.
-        if (!_kioskScalesLoaded) {
-            _kioskScalesLoaded = true;
-            fetch('/api/scales/active').then(function (r) { return r.json(); }).then(function (scales) {
-                if (!scales || scales.length < 2) return;
-                var sel = document.getElementById('kioskScalePickerSelect');
-                scales.forEach(function (s) {
-                    var opt = document.createElement('option');
-                    opt.value = s.id;
-                    opt.textContent = s.name;
-                    sel.appendChild(opt);
-                });
-                var saved = localStorage.getItem('bw.kioskScale');
-                if (saved && sel.querySelector('option[value="' + saved + '"]')) sel.value = saved;
-                document.getElementById('kioskScalePickerWrap').style.display = 'block';
-            }).catch(function () {});
-        }
-
-        if (!_kioskPrintersLoaded) {
-            document.getElementById('kioskPrinterPickerLoading').style.display = 'block';
-
-            // Connect to SignalR to get available printers
-            if (!_kioskPrinterConnection) {
-                _kioskPrinterConnection = new signalR.HubConnectionBuilder().withUrl('/scaleHub').build();
-
-                _kioskPrinterConnection.on('PrintServiceReady', function (data) {
-                    addPrintersToDropdown(data);
-                });
-
-                _kioskPrinterConnection.on('PrinterListReceived', function (data) {
-                    addPrintersToDropdown(data);
-                });
-
-                _kioskPrinterConnection.start().then(function () {
-                    _kioskPrinterConnection.invoke('RequestPrinterList').catch(function () {});
-                    // Hide loading after a timeout even if no services respond
-                    setTimeout(function () {
-                        document.getElementById('kioskPrinterPickerLoading').style.display = 'none';
-                        _kioskPrintersLoaded = true;
-                    }, 3000);
-                });
-            }
-        }
-    }
-
-    function addPrintersToDropdown(data) {
-        var sel = document.getElementById('kioskPrinterPickerSelect');
-        var sid = data.serviceId || 'default';
-        var printers = data.printers || [];
-        printers.forEach(function (p) {
-            if (!p.enabled) return;
-            var val = sid + ':' + (p.printerId || p.PrinterId);
-            var label = (p.displayName || p.DisplayName || p.printerId || p.PrinterId);
-            // Check if already added
-            for (var i = 0; i < sel.options.length; i++) {
-                if (sel.options[i].value === val) return;
-            }
-            var opt = document.createElement('option');
-            opt.value = val;
-            opt.textContent = label + ' (' + sid + ')';
-            sel.appendChild(opt);
-        });
-        document.getElementById('kioskPrinterPickerLoading').style.display = 'none';
-        _kioskPrintersLoaded = true;
-    }
-
-    function addReadersToDropdown(data) {
-        var sel = document.getElementById('kioskReaderPickerSelect');
-        var sid = data.serviceId || 'default';
-        var readers = data.readers || [];
-        readers.forEach(function (r) {
-            var readerId = r.readerId || r.ReaderId;
-            if (!readerId) return;
-            if (r.active === false || r.Active === false) return;
-            var val = sid + ':' + readerId;
-            for (var i = 0; i < sel.options.length; i++) {
-                if (sel.options[i].value === val) return;
-            }
-            var opt = document.createElement('option');
-            opt.value = val;
-            opt.textContent = (r.displayName || r.DisplayName || readerId) + ' (' + sid + ')';
-            sel.appendChild(opt);
-        });
-        if (sel.options.length > 1) {
-            var saved = localStorage.getItem('bw.kioskReader');
-            if (saved && sel.querySelector('option[value="' + saved + '"]')) sel.value = saved;
-            document.getElementById('kioskReaderPickerWrap').style.display = 'block';
+        var pin = document.getElementById('kioskPinInput');
+        if (pin) {
+            // Never carry a PIN over from a previous launch, and land the
+            // cursor in the only field there is.
+            pin.value = '';
+            setTimeout(function () { pin.focus(); }, 400);
         }
     }
 
     function launchKiosk() {
-        var sel = document.getElementById('kioskPrinterPickerSelect');
-        var val = sel.value;
-        var parts = val.split(':', 2);
-        var serviceId = encodeURIComponent(parts[0] || 'Browser');
-        var printerId = encodeURIComponent(parts[1] || 'Browser');
-        var pin = '@(appSetup?.UseLogin == true ? appSetup?.KioskCode ?? "" : "")';
-        var url = '/Kiosk?service-id=' + serviceId + '&printer-id=' + printerId;
-        if (pin) url += '&pin=' + encodeURIComponent(pin);
-        var scaleWrap = document.getElementById('kioskScalePickerWrap');
-        if (scaleWrap && scaleWrap.style.display !== 'none') {
-            var scaleVal = document.getElementById('kioskScalePickerSelect').value;
-            if (scaleVal) {
-                url += '&scale-id=' + encodeURIComponent(scaleVal);
-                localStorage.setItem('bw.kioskScale', scaleVal);
+        var url = '/Kiosk';
+
+        if (_kioskUseLogin) {
+            var pin = (document.getElementById('kioskPinInput').value || '').trim();
+            if (!pin) {
+                var err = document.getElementById('kioskPinError');
+                err.textContent = 'Enter the kiosk PIN.';
+                err.style.display = 'block';
+                document.getElementById('kioskPinInput').focus();
+                return;
             }
+            // A wrong PIN lands the new tab on the login page - the server is
+            // the only thing that can judge it, so it is not checked here.
+            url += '?pin=' + encodeURIComponent(pin);
         }
-        var readerWrap = document.getElementById('kioskReaderPickerWrap');
-        if (readerWrap && readerWrap.style.display !== 'none') {
-            var readerVal = document.getElementById('kioskReaderPickerSelect').value;
-            if (readerVal) {
-                url += '&reader-id=' + encodeURIComponent(readerVal);
-                localStorage.setItem('bw.kioskReader', readerVal);
-            }
-        }
+
         window.open(url, '_blank');
         bootstrap.Modal.getInstance(document.getElementById('kioskPrinterPickerModal')).hide();
     }
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        var modal = document.getElementById('kioskPrinterPickerModal');
+        if (!modal || !modal.classList.contains('show')) return;
+        e.preventDefault();
+        launchKiosk();
+    });
     </script>
     }
 </body>

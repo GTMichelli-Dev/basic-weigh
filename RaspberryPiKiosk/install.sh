@@ -102,42 +102,49 @@ while :; do
 done
 
 # ---------- prompt for kiosk URL parameters ----------
-# These all become query-string parameters on the Kiosk URL. They're all
-# optional — pressing Enter at any prompt leaves the parameter off the URL.
 say "Optional kiosk URL parameters (press Enter to skip any of them):"
 
-# PIN — required only when the server has UseLogin enabled. Becomes ?pin=
-echo "  PIN   — only required if the Foundation server has User Login enabled."
-echo "          The server stores this as a 24-hour cookie after the first hit,"
-echo "          so the URL doesn't need it again until the cookie expires."
+# PIN — no longer asked for. A server with User Login on sends the kiosk to its
+# own numpad screen, where the PIN is tapped in once and remembered in the
+# browser profile for good. Keeping it out of here keeps a credential off the
+# Pi's disk and out of the process list.
+#
+# An existing PIN is carried forward untouched, though: a kiosk that is already
+# running should not start asking for a PIN just because its installer was
+# re-run. Clear KIOSK_PIN from the config to move it onto the on-screen prompt.
 if [[ -n "$default_pin" ]]; then
-    read -r -p "  Kiosk PIN [$default_pin]: " KIOSK_PIN
-    KIOSK_PIN="${KIOSK_PIN:-$default_pin}"
+    KIOSK_PIN="$default_pin"
+    echo "  PIN   — keeping the PIN already in this kiosk's config. Newer servers"
+    echo "          ask for it on the kiosk screen instead; clear KIOSK_PIN from"
+    echo "          $CONFIG_FILE to switch this kiosk over."
 else
-    read -r -p "  Kiosk PIN (blank to skip): " KIOSK_PIN
+    KIOSK_PIN=""
+    echo "  PIN   — not needed here. If the server has User Login on, the kiosk"
+    echo "          asks for the PIN on its own screen the first time it loads,"
+    echo "          and remembers it from then on."
 fi
 
-# Service ID — identifies the print/camera service instance this kiosk uses.
-echo "  SVC   — service-id picks the Print/Camera Service instance this kiosk uses."
-echo "          Use 'Browser' (or leave blank) to print via the browser instead of"
-echo "          a hardware printer. Otherwise enter the service ID of the Pi/PC"
-echo "          running the print agent (visible in the web app's Setup page)."
-if [[ -n "$default_service_id" ]]; then
-    read -r -p "  Service ID [$default_service_id]: " SERVICE_ID
-    SERVICE_ID="${SERVICE_ID:-$default_service_id}"
+# Scale, printer and card reader are no longer asked for here: the kiosk asks
+# for them on its own screen the first time it loads, where the installer can
+# see the real hardware the site is running and skip the printer or the reader.
+#
+# The two prompts below therefore only appear for a kiosk that was installed
+# before self-setup existed and still has them in its config — re-running the
+# installer must not silently strip a working mapping. Clear them to move the
+# kiosk onto on-screen setup.
+if [[ -n "$default_service_id" || -n "$default_printer_id" ]]; then
+    echo "  SVC   — this kiosk still has printer parameters on its URL, from an"
+    echo "          install that predates on-screen setup. Clear both to let the"
+    echo "          kiosk pick its own printer on screen instead."
+    read -r -p "  Service ID [$default_service_id] (blank to clear): " SERVICE_ID
+    read -r -p "  Printer ID [$default_printer_id] (blank to clear): " PRINTER_ID
+    # An explicit empty answer clears; the defaults are not re-applied, or
+    # there would be no way to drop them.
 else
-    read -r -p "  Service ID (blank to skip, or 'Browser' for browser-print): " SERVICE_ID
-fi
-
-# Printer ID — which physical printer to use (or 'Browser' for browser-print).
-echo "  PRT   — printer-id picks which printer the service uses. Set to 'Browser'"
-echo "          when Service ID is 'Browser'. Otherwise use the printer name shown"
-echo "          on the print agent's web UI (e.g. Zebra_LP2844, BIXOLON_BK3)."
-if [[ -n "$default_printer_id" ]]; then
-    read -r -p "  Printer ID [$default_printer_id]: " PRINTER_ID
-    PRINTER_ID="${PRINTER_ID:-$default_printer_id}"
-else
-    read -r -p "  Printer ID (blank to skip): " PRINTER_ID
+    SERVICE_ID=""
+    PRINTER_ID=""
+    echo "  HW    — scale, printer and card reader are chosen on the kiosk screen"
+    echo "          the first time it loads. Nothing to enter here."
 fi
 
 # Language — pins this kiosk to one language regardless of the site default set
@@ -269,15 +276,21 @@ cat <<EOF
 
   Server URL : $SERVER_URL
   Kiosk URL  : $KIOSK_URL
-  Service ID : ${SERVICE_ID:-<none>}
-  Printer ID : ${PRINTER_ID:-<none>}
+  Service ID : ${SERVICE_ID:-<set on the kiosk screen>}
+  Printer ID : ${PRINTER_ID:-<set on the kiosk screen>}
   Language   : ${KIOSK_LANG:-<site default>}
-  Kiosk PIN  : $( [[ -n "$KIOSK_PIN" ]] && echo '<set>' || echo '<none>' )
+  Kiosk PIN  : $( [[ -n "$KIOSK_PIN" ]] && echo '<carried over from the old config>' || echo '<asked on the kiosk screen>' )
   Loop script: $SCRIPT_DIR/kiosk-loop.sh
   Config     : $CONFIG_FILE
 
   Reboot the Pi to start the kiosk:
       sudo reboot
+
+  The first time it loads, the kiosk asks on its own screen which scale it
+  weighs on, which printer to use (or none), and which card reader to listen
+  to (or none). It remembers the answers; to change them later, press and
+  hold the logo at the top of the kiosk screen for three seconds, or edit the
+  kiosk on the web app's Setup -> Kiosks page.
 
   To stop the kiosk (e.g. for maintenance) — SSH into the Pi and run:
       $SCRIPT_DIR/kiosk-stop

@@ -33,6 +33,11 @@ readers are handled by configuration, not code (see
 The web app decides what a card *means* (which truck, which fields, weigh in vs
 weigh out). This service only reports that a card was presented.
 
+Which kiosk listens to which reader is chosen **on the kiosk**: a display that
+does not recognise itself runs a short setup on its own screen and picks its
+scale, printer and reader from what is connected at that moment. Nothing here
+needs to know about kiosks.
+
 ---
 
 ## Install (Raspberry Pi / Linux)
