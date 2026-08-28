@@ -12,9 +12,9 @@
 #
 # From a checkout:
 #
-#   git clone https://github.com/GTMichelli-Dev/rfid-reader-service.git /tmp/rrs
-#   bash /tmp/rrs/deploy/install.sh <web-server-url>
-#   rm -rf /tmp/rrs
+#   git clone https://github.com/GTMichelli-Dev/foundation.git /tmp/fnd
+#   bash /tmp/fnd/RfidReaderService/deploy/install.sh <web-server-url>
+#   rm -rf /tmp/fnd
 #
 # On Windows, where the reader is wired to the weigh PC, use the win-x64 zip
 # and its INSTALL.bat instead — see deploy/package-README.txt.
@@ -36,9 +36,9 @@
 # Re-run the same command to update: the service stops, files are replaced, the
 # reader database is preserved, and the service restarts.
 #
-# Until this lives in its own repo, install from the monorepo instead:
-#   git clone https://github.com/GTMichelli-Dev/foundation.git /tmp/fnd
-#   bash /tmp/fnd/RfidReaderService/deploy/install.sh <url> --local /tmp/fnd/RfidReaderService
+# This service lives in the foundation monorepo, not a repo of its own. The
+# checkout recipe above handles the subdirectory itself, so --local is only
+# needed to build from a working tree you have already modified.
 # =============================================================================
 
 set -e
@@ -49,7 +49,11 @@ SERVICE_PORT="5230"
 INSTALL_DIR="/opt/rfid-reader-service"
 SERVICE_NAME="rfid-reader-service"
 DOTNET_CHANNEL="10.0"
-GITHUB_REPO="GTMichelli-Dev/rfid-reader-service"
+# There is no GTMichelli-Dev/rfid-reader-service - it 404s. This service is a
+# subdirectory of the monorepo, so a clone lands one level above the csproj and
+# REPO_SUBDIR bridges the gap. Releases ship from foundation too.
+GITHUB_REPO="GTMichelli-Dev/foundation"
+REPO_SUBDIR="RfidReaderService"
 BRANCH="main"
 WEB_URL=""
 LOCAL_SRC=""
@@ -251,6 +255,7 @@ if [ -f "${INSTALL_DIR}/rfidreaderservice.db" ]; then
 fi
 
 CLEANUP_CLONE=false
+CLONE_DIR=""
 # Prebuilt release package?
 #
 # When this script sits next to an "app" folder - the layout of the release
@@ -276,11 +281,13 @@ if [ -n "$LOCAL_SRC" ]; then
     SRC_DIR="$LOCAL_SRC"
     echo "  Using local source: ${SRC_DIR}"
 else
-    SRC_DIR=$(mktemp -d)
+    CLONE_DIR=$(mktemp -d)
     CLEANUP_CLONE=true
     echo "  Cloning ${GITHUB_REPO} (${BRANCH})..."
     sudo apt-get install -y -qq git 2>/dev/null || true
-    git clone --depth 1 --branch "${BRANCH}" "https://github.com/${GITHUB_REPO}.git" "${SRC_DIR}"
+    git clone --depth 1 --branch "${BRANCH}" "https://github.com/${GITHUB_REPO}.git" "${CLONE_DIR}"
+    # The build wants the csproj directory, which is one level into the monorepo.
+    SRC_DIR="${CLONE_DIR}/${REPO_SUBDIR}"
 fi
 
 # The SDK is needed to build; match the major version of DOTNET_CHANNEL.
@@ -304,7 +311,7 @@ dotnet publish "${SRC_DIR}/RfidReaderService.csproj" \
     -p:PublishTrimmed=false
 
 if [ "$CLEANUP_CLONE" = true ]; then
-    rm -rf "${SRC_DIR}"
+    rm -rf "${CLONE_DIR}"
 fi
 
 fi   # end of build-from-source branch
