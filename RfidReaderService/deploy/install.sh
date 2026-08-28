@@ -131,9 +131,16 @@ echo ""
 # Catch it here, while someone is watching, and name what is holding the port.
 # Skipped when this service already owns it: re-running the installer to update
 # is the normal path, and the running copy is stopped a few steps below.
+#
+# ss reports /proc/<pid>/comm, which the kernel caps at 15 characters
+# (TASK_COMM_LEN), so the 17-character "RfidReaderService" shows up as
+# "RfidReaderServi". Matching the full name never succeeded, so the skip above
+# never fired and every in-place update was refused - naming the service's own
+# process as the thing blocking it. Compare against the truncated form.
+OWN_COMM="$(printf '%.15s' RfidReaderService)"
 if command -v ss &> /dev/null; then
     PORT_HOLDER=$(ss -tlnpH "sport = :${SERVICE_PORT}" 2>/dev/null | head -1)
-    if [ -n "$PORT_HOLDER" ] && ! echo "$PORT_HOLDER" | grep -q "RfidReaderService"; then
+    if [ -n "$PORT_HOLDER" ] && ! echo "$PORT_HOLDER" | grep -q "$OWN_COMM"; then
         HOLDER_NAME=$(echo "$PORT_HOLDER" | sed -n 's/.*users:((\"\([^\"]*\)\".*/\1/p')
         [ -z "$HOLDER_NAME" ] && HOLDER_NAME="another process (re-run with sudo to see which)"
         echo "ERROR: port ${SERVICE_PORT} is already in use by ${HOLDER_NAME}."
