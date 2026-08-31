@@ -10,3 +10,6 @@
 [submodule "PiPrintService"]
 	path = PiPrintService
 	url = https://github.com/GTMichelli-Dev/web-print-service.git
+[submodule "Pi_Branding"]
+	path = Pi_Branding
+	url = https://github.com/GTMichelli-Dev/Pi_Branding.git

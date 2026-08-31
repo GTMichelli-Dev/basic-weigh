@@ -11,12 +11,17 @@ Foundation is a web-based truck scale management application for weighing inboun
   - [Debian Server (Vultr, etc.) — HTTPS](docs/deploy-vultr.md)
   - [Raspberry Pi (LAN only, HTTP)](docs/deploy-pi.md)
   - [Raspberry Pi Kiosk Display](RaspberryPiKiosk/README.md)
+  - [Raspberry Pi Branding](Pi_Branding/README.md)
+  - [Gate Controller Service](GateControllerService/README.md)
+  - [Pi Access to Private Repos (pi-git-auth)](#pi-access-to-private-repos-github-app-token)
 - [Deploy Script Reference](#deploy-script-reference)
   - [Server (Debian x64)](#server-debian-x64)
   - [Multiple Sites at Once](#multiple-sites-at-once)
+  - [RFID Card Reader Service](#rfid-card-reader-service)
   - [Raspberry Pi Print Agent (arm64)](#raspberry-pi-print-agent-arm64)
   - [Gate Controller Service (arm64)](#gate-controller-service-arm64)
   - [Raspberry Pi Kiosk Display (arm64)](#raspberry-pi-kiosk-display-arm64)
+  - [Raspberry Pi Branding (arm64)](#raspberry-pi-branding-arm64)
 - [Server Management](#server-management)
   - [Updating to a New Version](#updating-to-a-new-version)
   - [Updating the Pi Print Agent](#updating-the-pi-print-agent)
@@ -76,6 +81,7 @@ Pick the path that matches where the app will run. Each guide is self-contained 
 | **Debian cloud server** (Vultr, etc.) | Internet-facing site with a real domain and HTTPS. Required if you need access from outside the LAN or want Let's Encrypt SSL. | [docs/deploy-vultr.md](docs/deploy-vultr.md) |
 | **Raspberry Pi on the LAN** (HTTP) | Single weigh station, operators on the same local network, no domain or certificate. Reachable at `http://truckscale.local`. | [docs/deploy-pi.md](docs/deploy-pi.md) |
 | **Raspberry Pi kiosk display** | A second Pi (per kiosk display) wired to the scale-house TV. Boots straight into Chromium pointed at `<server>/Kiosk` with a watchdog that restarts the browser on outage. Bootstrap is a one-shot paste into [Raspberry Pi Connect](https://connect.raspberrypi.com); install.sh prompts for the kiosk PIN, service-id, and printer-id and assembles the full URL. | [RaspberryPiKiosk/README.md](RaspberryPiKiosk/README.md) |
+| **Raspberry Pi branding** | Cosmetic, run on any Pi in the fleet. Replaces the boot splash and desktop with Michelli artwork, quiets the boot, and rotates the screen. One-shot — run once, reboot once, done. | [Pi_Branding/README.md](Pi_Branding/README.md) |
 
 After the app is running, see [Server Management](#server-management) for updates and routine ops, and [Configuration](#configuration) for app settings.
 
@@ -390,6 +396,77 @@ sudo reboot
 | Service ID | `?service-id=…` (`Browser` or blank for browser-print) | last value used |
 | Printer ID | `?printer-id=…` (e.g. `Zebra_LP2844`) | last value used |
 | Language | `?lang=…` (`en` / `es`; blank follows the Setup default) | last value used |
+
+### Raspberry Pi Branding (arm64)
+
+Brands a Pi as a Michelli appliance: Michelli boot splash on light grey, a
+quiet boot with no rainbow square or kernel text, a light-grey desktop with
+the logo centred and no icons, the Michelli "M" as the taskbar menu button,
+and optional screen rotation. It is cosmetic and independent of the app — run
+it on a web-app Pi, a kiosk Pi, or both, before or after the app is installed.
+
+Ships from its own repo, vendored here as the [`Pi_Branding`](Pi_Branding)
+submodule and pinned to a release tag, so a branding change never lands on the
+fleet unnoticed.
+
+| Script | Description |
+|--------|-------------|
+| [`Pi_Branding/setup-kiosk-display.sh`](Pi_Branding/setup-kiosk-display.sh) | One-shot provisioning. Clones the stock `pix` Plymouth theme into its own `michelli` theme, installs the splash / desktop / menu artwork, strips the boot noise, and writes the kanshi + cmdline rotation |
+
+**Run on the Pi** (interactive — prompts for display and rotation):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/GTMichelli-Dev/Pi_Branding/v1.0.0/setup-kiosk-display.sh | sudo bash
+sudo reboot
+```
+
+Two prompts: the **display** (auto-detected where possible; usually `DSI-2` on
+the Touch Display 2) and the **rotation** (Normal / Right / Inverted / Left —
+one answer sets the desktop and the boot splash together).
+
+**Fleet rollout** — pass the arguments and nothing is asked. Touch Display 2,
+rotated right:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/GTMichelli-Dev/Pi_Branding/v1.0.0/setup-kiosk-display.sh | sudo bash -s -- "" michelli 270 DSI-2 right_side_up
+```
+
+Arguments in order: `logo`, `theme`, `rotate`, `output`, `panel_orientation`,
+`boot_mode`, `menu_icon`, `icon_theme`, `desktop_logo`; `""` keeps the default.
+"Right" is 90 degrees clockwise — the desktop expresses it as kanshi transform
+`270`, the splash as `right_side_up`.
+
+**Pi with no internet** — take the release tarball, which carries the artwork
+alongside the script. The artwork arguments default to raw.githubusercontent
+URLs even when the script runs from a checkout, so pass the local files
+explicitly or it still reaches out:
+
+```bash
+curl -fsSL -o pb.tar.gz https://github.com/GTMichelli-Dev/Pi_Branding/archive/refs/tags/v1.0.0.tar.gz
+tar xzf pb.tar.gz && cd Pi_Branding-1.0.0
+sudo bash setup-kiosk-display.sh ./Michelli-Logo.png michelli "" "" "" 720x1280M@60D ./Michelli-Menu.png PiXtrix ./Michelli-Desktop.png
+sudo reboot
+```
+
+The three empty arguments leave rotation and display to the prompts; fill them
+in to skip those too.
+
+**From a checkout of this repo on the Pi**, the submodule is already there:
+
+```bash
+cd ~/foundation && git submodule update --init Pi_Branding
+sudo bash Pi_Branding/setup-kiosk-display.sh
+sudo reboot
+```
+
+That form fetches the artwork over the network; add the argument list above to
+use the copies in the submodule instead.
+
+The script is idempotent and does **not** run on every boot — re-run it to
+restore the branding after an OS or icon-theme update overwrites it. Edited
+boot files are backed up beside the original as `*.bak-<timestamp>` and
+replaced theme icons as `*.orig`; [`Pi_Branding/README.md`](Pi_Branding/README.md)
+documents the full revert.
 
 [↑ Back to top](#table-of-contents)
 
