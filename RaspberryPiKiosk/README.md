@@ -87,7 +87,7 @@ rm -f /tmp/foundation-bootstrap.sh
 ### Run the installer
 
 ```bash
-cd ~/foundation/RaspberryPiKiosk
+cd ~/foundation-kiosk/RaspberryPiKiosk
 chmod + install.sh &&
 ./install.sh
 sudo reboot
