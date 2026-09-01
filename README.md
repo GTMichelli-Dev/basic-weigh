@@ -8,7 +8,7 @@ Foundation is a web-based truck scale management application for weighing inboun
 
 - [Features](#features)
 - [Deployment Guides](#deployment-guides)
-  - [Pi Access to Private Repos (pi-git-auth)((https://github.com/GTMichelli-Dev/pi-git-auth)
+  - [Pi Access to Private Repos](https://github.com/GTMichelli-Dev/pi-git-auth)
   - [Raspberry Pi Branding](Pi_Branding/README.md)
   - [Debian Server (Vultr, etc.) — HTTPS](docs/deploy-vultr.md)
   - [Raspberry Pi (LAN only, HTTP)](docs/deploy-pi.md)
