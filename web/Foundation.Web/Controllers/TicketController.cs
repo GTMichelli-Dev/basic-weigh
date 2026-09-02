@@ -269,14 +269,32 @@ public class TicketController : Controller
 
     /// <summary>
     /// Reprint a ticket via Scale or Remote Printer.
+    /// With <paramref name="printerId"/> ("serviceId:printerId") the operator
+    /// picked a specific printer from the reprint dialog on the ticket grids,
+    /// which addresses that one print service directly and bypasses the
+    /// RemotePrintMode routing.
     /// </summary>
     [HttpPost("api/ticket/{id}/reprint")]
-    public async Task<IActionResult> Reprint(string id)
+    public async Task<IActionResult> Reprint(string id, [FromQuery] string? printerId = null)
     {
         var transaction = _db.Transactions.Find(id);
         if (transaction == null) return NotFound();
 
         var setup = _setupCache.Get();
+
+        // Operator picked a printer. This is the same dispatch the kiosk uses,
+        // reached through the operator login instead of the kiosk PIN — the
+        // grids are staff screens and their users have no kiosk PIN cookie.
+        if (!string.IsNullOrEmpty(printerId))
+        {
+            var type = transaction.DateOut != null ? "weighout" : "weighin";
+            var scaleName = type == "weighout"
+                ? (transaction.OutScale ?? transaction.InScale)
+                : transaction.InScale;
+
+            await PrintDispatch.SendAsync(_hub, _db, setup, id, type, printerId, scaleName);
+            return Json(new { success = true, mode = "RemotePrinter" });
+        }
 
         if (setup.RemotePrintMode == "Scale")
         {

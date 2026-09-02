@@ -905,45 +905,7 @@ public class KioskController : Controller
     /// </summary>
     private async Task SendPrintCommand(string ticketId, string type, string? printerId, string? scaleName = null)
     {
-        var setup = _setupCache.Get();
-
-        // If no printer specified, use defaults
-        if (string.IsNullOrEmpty(printerId))
-        {
-            if (setup.DemoMode)
-            {
-                // In demo mode, use a virtual "KioskPrinter" so the flow works
-                printerId = "demo:KioskPrinter";
-            }
-            else
-            {
-                // Per-scale printer assignment, else the Setup default
-                printerId = SiteScales.ResolvePrinter(_db, scaleName, type == "weighout", setup);
-            }
-        }
-
-        if (string.IsNullOrEmpty(printerId)) return;
-
-        // Browser printing — handled client-side, skip server-side print command
-        if (printerId.Equals("Browser:Browser", StringComparison.OrdinalIgnoreCase)) return;
-
-        // Split serviceId:printerId
-        var parts = printerId.Split(':', 2);
-        var serviceId = parts.Length > 1 ? parts[0] : "";
-        var printerName = parts.Length > 1 ? parts[1] : parts[0];
-
-        if (!string.IsNullOrEmpty(serviceId))
-        {
-            // Route to specific service
-            await _hub.Clients.Group($"Print_{serviceId}").SendAsync("PrintTicket",
-                new { ticketId, type, printerId = printerName });
-        }
-        else
-        {
-            // Broadcast to all print services
-            await _hub.Clients.Group("PrintClients").SendAsync("PrintTicket",
-                new { ticketId, type, printerId = printerName });
-        }
+        await PrintDispatch.SendAsync(_hub, _db, _setupCache.Get(), ticketId, type, printerId, scaleName);
     }
 
     /// <summary>

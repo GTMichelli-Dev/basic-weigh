@@ -396,7 +396,7 @@
                         .html('<i class="fa fa-print"></i> ' + $('<span>').text(label).html())
                         .on('click', function () {
                             $.ajax({
-                                url: '/api/kiosk/reprint/' + encodeURIComponent(ticketId) + '?printerId=' + encodeURIComponent(sid + ':' + p.printerId),
+                                url: '/api/ticket/' + encodeURIComponent(ticketId) + '/reprint?printerId=' + encodeURIComponent(sid + ':' + p.printerId),
                                 method: 'POST'
                             });
                             bootstrap.Modal.getInstance($modal[0]).hide();

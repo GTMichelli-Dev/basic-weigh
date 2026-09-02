@@ -280,6 +280,19 @@ app.Use(async (context, next) =>
         return;
     }
 
+    // The print service fetches the ticket PDF over plain HTTP with no cookie
+    // jar — it is a daemon on the yard network, not a browser session. Gated,
+    // its GET follows the 302 to /Account/Login and it prints the login page's
+    // HTML source on receipt stock instead of the ticket. Same action already
+    // serves anonymously as /api/mobile/ticket/{id}/pdf above, so this exposes
+    // nothing new: a ticket PDF to whoever already knows the ticket number.
+    if (path.StartsWith("/api/ticket/", StringComparison.OrdinalIgnoreCase) &&
+        path.EndsWith("/pdf", StringComparison.OrdinalIgnoreCase))
+    {
+        await next();
+        return;
+    }
+
     // Kiosk / signature pad access: check PIN if UseLogin is on. The signature
     // pad is an unattended tablet like the kiosk, so it shares the kiosk PIN
     // (and cookie). /api/signature/ is included so the pad can upload.

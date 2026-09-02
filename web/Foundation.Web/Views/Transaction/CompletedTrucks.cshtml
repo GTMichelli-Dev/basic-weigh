@@ -614,7 +614,7 @@
 
         function sendToPrinter(ticketId, serviceId, printerId) {
             $.ajax({
-                url: '/api/kiosk/reprint/' + encodeURIComponent(ticketId) + '?printerId=' + encodeURIComponent(serviceId + ':' + printerId),
+                url: '/api/ticket/' + encodeURIComponent(ticketId) + '/reprint?printerId=' + encodeURIComponent(serviceId + ':' + printerId),
                 method: 'POST',
                 success: function () {
                     showAlert('<i class="bi bi-check-circle"></i> Print sent to ' + printerId, 'success');
