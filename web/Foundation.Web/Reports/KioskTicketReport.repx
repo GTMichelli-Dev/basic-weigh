@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<XtraReportsLayoutSerializer SerializerVersion="25.2.5.0" Ref="0" ControlType="Foundation.Web.Reports.KioskTicketReport, Foundation.Web, Version=1.3.33.0, Culture=neutral, PublicKeyToken=null" RollPaper="true" Margins="10, 10, 10, 10" PaperKind="Custom" PageWidthF="300" PageHeightF="500" Version="25.2" Font="Courier New, 9pt">
+<XtraReportsLayoutSerializer SerializerVersion="25.2.5.0" Ref="0" ControlType="Foundation.Web.Reports.KioskTicketReport, Foundation.Web, Version=1.3.33.0, Culture=neutral, PublicKeyToken=null" RollPaper="true" Margins="2, 1, 10, 10" PaperKind="Custom" PageWidthF="283" PageHeightF="500" Version="25.2" Font="Courier New, 9pt">
   <Parameters>
     <Item1 Ref="2" Visible="false" Name="Ticket" />
     <Item2 Ref="3" Visible="false" Name="DateIn" />
