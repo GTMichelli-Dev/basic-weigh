@@ -12,6 +12,8 @@ set -euo pipefail
 #   EMAIL=admin@example.com    — required for Let's Encrypt
 #   PORT=5110                  — app listen port (default 5110)
 #   REBUILD_DB=1               — delete and recreate the database
+#   RESET_REPORTS=1            — take the shipped ticket templates instead of
+#                                keeping the site's saved .repx files
 
 APP_DIR="/opt/foundation"
 SERVICE_USER="admin"
@@ -23,6 +25,7 @@ DOMAIN="${DOMAIN%/}"
 EMAIL="${EMAIL:-}"
 APP_PORT="${PORT:-5110}"
 REBUILD_DB="${REBUILD_DB:-0}"
+RESET_REPORTS="${RESET_REPORTS:-0}"
 
 #--------------------------------------------------
 # 0. If a tarball was passed, extract it first
@@ -125,7 +128,25 @@ else
     echo "  Database backed up to /tmp/Foundation.db.bak"
   fi
 fi
-if [[ -d "$APP_DIR/Reports" ]]; then
+# Saved ticket templates are per-site: an operator can edit them in the Report
+# Designer, so a deploy must not silently overwrite them. The build ships no
+# Reports/ directory, so the rsync --delete below would wipe the whole folder —
+# this backup is the only reason a site keeps its templates across a deploy.
+#
+# RESET_REPORTS=1 opts out: the folder goes, and the app re-seeds
+# TicketReport.repx / KioskTicketReport.repx from the built-in report classes on
+# first use. That is how a fix to the stock template (page width, say) reaches a
+# site that has ever opened the designer. It also discards any site-only .repx,
+# since there is no backup to restore them from.
+#
+# The stale backup is cleared first. "cp -r src dest" NESTS when dest already
+# exists, so without this the second deploy produced /tmp/Reports.bak/Reports/
+# alongside the first deploy's files, and the restore below copied those
+# first-deploy templates back over the site's current ones — every time.
+rm -rf /tmp/Reports.bak
+if [[ "$RESET_REPORTS" == "1" ]]; then
+  echo "  RESET_REPORTS=1 — shipped ticket templates will be used."
+elif [[ -d "$APP_DIR/Reports" ]]; then
   cp -r "$APP_DIR/Reports" /tmp/Reports.bak
   echo "  Reports backed up to /tmp/Reports.bak/"
 fi

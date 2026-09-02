@@ -13,11 +13,16 @@ public class TicketReport : XtraReport
 
     public TicketReport()
     {
-        // 3" receipt paper (76mm = ~288 pixels at 96dpi, or 3 inches = 300 hundredths)
+        // 3" receipt paper, sized to what the printer can actually image rather
+        // than to the nominal roll width. A BIXOLON BK3-3 images 71.97mm — 283
+        // hundredths — with no hardware margin. At the old 300 (76.20mm) the
+        // page was 4.2mm wider than the printer, and the 280-wide content sat
+        // 10 in from the left, so its last ~1.8mm printed off the paper.
+        // Side margins are 2/1 so the 280-wide band still fits with 0.25mm over.
         PaperKind = DXPaperKind.Custom;
-        PageWidth = 300;  // 3 inches in hundredths of an inch
+        PageWidth = 283;  // 71.97mm in hundredths of an inch
         PageHeight = 800; // tall enough for content
-        Margins = new DXMargins(10, 10, 10, 10);
+        Margins = new DXMargins(2, 1, 10, 10);
         Font = new DXFont("Courier New", 9f);
         RollPaper = true;
 

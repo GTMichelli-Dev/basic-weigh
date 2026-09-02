@@ -10,11 +10,12 @@ public class KioskTicketReport : XtraReport
 {
     public KioskTicketReport()
     {
-        // 3" receipt paper
+        // 3" receipt paper, sized to the printer's imageable width — see the
+        // note in TicketReport for why this is 283 and not 300.
         PaperKind = DXPaperKind.Custom;
-        PageWidth = 300;
+        PageWidth = 283;  // 71.97mm in hundredths of an inch
         PageHeight = 500;
-        Margins = new DXMargins(10, 10, 10, 10);
+        Margins = new DXMargins(2, 1, 10, 10);
         Font = new DXFont("Courier New", 9f);
         RollPaper = true;
 
