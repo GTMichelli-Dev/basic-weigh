@@ -1527,13 +1527,13 @@
         showModal({
             title: T('Reuse stored tare?'),
             text: cfg.allowTareReset
-                ? TF('This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Resetting it clears that weight and keeps the ticket open until you weigh out on the scale.',
+                ? TF('This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Re-taring instead replaces that weight with what is on the scale now, and writes no ticket — only do it with an empty truck.',
                      tareLine())
                 : TF('This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Otherwise the ticket stays open until you weigh out on the scale.',
                      tareLine()),
             okLabel: T('Finish now'),
             okClass: 'btn-green',
-            cancelLabel: cfg.allowTareReset ? T('Reset tare') : T('Weigh out later'),
+            cancelLabel: cfg.allowTareReset ? T('Re-tare this truck now') : T('Weigh out later'),
             onOk: function () { useTareChoice = true; proceedWithWeighment(); },
             onCancel: function () { useTareChoice = false; proceedWithWeighment(); }
         });
@@ -1661,6 +1661,15 @@
             saveRecall(answers);
             flow = null;
             clearTareState();
+
+            if (r.retared) {
+                // A re-tare replaced the truck's stored empty weight and wrote
+                // no ticket, so there is nothing to open or come back to.
+                openTicket = null;
+                show('home');
+                banner(TF('Stored tare updated to {0} lb', (r.tare || 0).toLocaleString()));
+                return;
+            }
 
             if (r.tareApplied) {
                 // A retained tare closed the load in one weighment — there is

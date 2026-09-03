@@ -265,11 +265,10 @@ public static class LangCatalog
         ["Reuse stored tare?"] = "¿Usar la tara guardada?",
         ["This truck has a stored empty weight of {0}. Use it to close the load, or weigh the truck on the scale now?"] = "Este camión tiene un peso vacío guardado de {0}. ¿Usarlo para cerrar la carga, o pesar el camión en la báscula ahora?",
         ["This truck has a stored empty weight of {0}. Use it to close the load, or weigh the truck on the scale now ({1} lb)?"] = "Este camión tiene un peso vacío guardado de {0}. ¿Usarlo para cerrar la carga, o pesar el camión en la báscula ahora ({1} lb)?",
-        ["This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Resetting it clears that weight and keeps the ticket open until you weigh out on the scale."] = "Este camión tiene un peso vacío guardado de {0}. Termine la carga ahora usándolo y no necesitará pesar salida. Restablecerla borra ese peso y deja la boleta abierta hasta que pese salida en la báscula.",
+        ["This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Re-taring instead replaces that weight with what is on the scale now, and writes no ticket — only do it with an empty truck."] = "Este camión tiene un peso vacío guardado de {0}. Termine la carga ahora usándolo y no necesitará pesar salida. Volver a tarar reemplaza ese peso con lo que hay en la báscula ahora y no crea ninguna boleta — hágalo solo con el camión vacío.",
         ["Use stored {0} lb"] = "Usar los {0} lb guardados",
         ["Weigh on scale"] = "Pesar en la báscula",
         ["Finish now"] = "Terminar ahora",
-        ["Reset tare"] = "Restablecer la tara",
         // Shown instead of the two above when the site does not let phone
         // drivers reset a tare: declining then skips it for this load only.
         ["This truck has a stored empty weight of {0}. Finish the load now using it, and you will not need to weigh out. Otherwise the ticket stays open until you weigh out on the scale."] = "Este camión tiene un peso vacío guardado de {0}. Termine la carga ahora usándolo y no necesitará pesar salida. De lo contrario, la boleta queda abierta hasta que pese salida en la báscula.",

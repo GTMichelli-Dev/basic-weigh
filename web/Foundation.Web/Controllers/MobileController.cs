@@ -248,21 +248,36 @@ public class MobileController : Controller
         var (truck, usableTare, tareUpdated) = UsableTare(setup, request.Carrier, request.TruckId);
         bool tareApplied = usableTare.HasValue && request.UseRetainedTare != false;
 
-        // Declining is a reset, not a skip for this load only: clearing the
-        // stored value is what makes this visit's real weigh-out capture a
-        // fresh tare instead of the old one surviving until it goes stale.
+        // Declining is a re-tare, matching the kiosk: the truck on the scale is
+        // empty and its stored weight is stale, so this weighment becomes the
+        // new tare and nothing else happens. No ticket, and no ticket number
+        // spent on a truck that never carried a load.
         //
         // Unless the site has taken that away from phone drivers — then
         // declining falls back to what it meant before the reset existed: this
         // load is weighed out for real, but the stored tare survives for the
-        // next visit. Re-checked here so a stale page cannot clear anything.
+        // next visit. Re-checked here so a stale page cannot change anything.
         if (usableTare.HasValue && request.UseRetainedTare == false
             && truck != null && setup.AllowTareResetMobile)
         {
-            _log.LogInformation("RetainedTare: mobile reset tare for {TruckId}/{Carrier} (was {Tare} lb)",
-                truck.TruckId, truck.CarrierName, truck.RetainedTare);
-            truck.RetainedTare = null;
-            truck.RetainedTareUpdated = null;
+            var previousTare = truck.RetainedTare;
+            truck.RetainedTare = request.Weight;
+            truck.RetainedTareUpdated = DateTime.UtcNow;
+            _db.SaveChanges();
+
+            var retareMsg = $"mobile re-tared '{truck.TruckId}' / '{truck.CarrierName}' " +
+                            $"from {previousTare} lb to {request.Weight} lb";
+            _log.LogInformation("RetainedTare: {Msg}", retareMsg);
+            Console.WriteLine($"[RetainedTare] {retareMsg}");
+
+            return Ok(new
+            {
+                retared = true,
+                tare = request.Weight,
+                previousTare,
+                truckId = truck.TruckId,
+                carrier = truck.CarrierName
+            });
         }
 
         var now = DateTime.UtcNow;
