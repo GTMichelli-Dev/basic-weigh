@@ -307,8 +307,15 @@ app.Use(async (context, next) =>
     // "/Kiosk" is matched exactly (not as a prefix) so the admin-only Kiosks
     // management page at /Kiosks does not inherit the kiosk's PIN gate and
     // become reachable with a driver-facing PIN.
+    // /api/retainedtares/lookup is the kiosk's stored-tare check. Only the
+    // lookup: the rest of that controller sets and clears tares and stays
+    // admin-only. Left out, the kiosk's GET redirected to /Account/Login, the
+    // page's getJSON got the login HTML back, and resolveTarePrompt's .fail
+    // handler dropped the prompt — so "Allow Tare Reset at the Kiosk" looked
+    // like it did nothing at all, with nothing on screen to say why.
     if (path.Equals("/Kiosk", StringComparison.Ordinal) || path.StartsWith("/Kiosk/", StringComparison.Ordinal) ||
         path.StartsWith("/api/kiosk/") ||
+        path.StartsWith("/api/retainedtares/lookup", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("/SignaturePad") || path.StartsWith("/api/signature/"))
     {
         var db = context.RequestServices.GetRequiredService<ScaleDbContext>();
