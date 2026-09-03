@@ -1270,6 +1270,11 @@
     // two answers. The kiosk never sends a tare value — only whether to finish
     // on the stored one or reset it; the server holds the number.
     var tareOffer = null;         // { tare, useLabel, resetLabel } or null
+    // How far above the tare being replaced a re-tare may go before the confirm
+    // screen warns the truck may not be empty. Generous on purpose: a tare
+    // legitimately drifts a few percent with fuel and equipment, while a loaded
+    // truck is multiples of it, so 25% separates the two without nagging.
+    var RETARE_WARN_FACTOR = 1.25;
 
     // ===== ELEMENTS =====
     var $weightDisplay = $('#weight-display');
@@ -2633,11 +2638,35 @@
             return;
         }
 
+        // A re-tare is not a load: nothing is being weighed in, so the screen
+        // must not say so. The action button changes with it — "Confirm & Weigh"
+        // on a screen that creates no weighment reads as the wrong thing.
+        var isRetare = !!(tareOffer && weighinData.__tare === tareOffer.resetLabel);
+
         $('#confirm-title').text(activeFlow === 'weighout'
             ? (weighoutTicket ? TF('Confirm Ticket #{0}', weighoutTicket.ticket) : T('Confirm Ticket'))
-            : T('Confirm New Load'));
+            : isRetare ? T('Confirm Re-tare') : T('Confirm New Load'));
+        $('#confirm-accept').text(isRetare ? T('Confirm Re-tare') : T('Confirm & Weigh'));
 
         var $summary = $('#confirm-summary').empty().scrollTop(0);
+
+        // A tare is the weight of an EMPTY truck. Re-taring while loaded writes
+        // the load into the truck's tare, and every future load computed off it
+        // is wrong — silently, and until someone notices the numbers. The kiosk
+        // cannot know whether the truck is empty, but a weight well above the
+        // tare being replaced is the tell, so say so while the driver is still
+        // standing here. A warning, not a block: fuel, water and equipment move
+        // a real tare around, and the operator on the ground is the one who can
+        // see the truck.
+        if (isRetare && tareOffer.tare > 0
+            && scaleData && scaleData.weight > tareOffer.tare * RETARE_WARN_FACTOR) {
+            $('<div class="confirm-row"></div>')
+                .css({ background: '#fdecea', color: '#b3261e', 'font-weight': '700',
+                       display: 'block', 'white-space': 'normal', 'line-height': '1.3' })
+                .text(TF('Check the truck is EMPTY — {0} lb is well above the stored tare of {1} lb.',
+                         scaleData.weight.toLocaleString(), tareOffer.tare.toLocaleString()))
+                .appendTo($summary);
+        }
         keys.forEach(function (key) {
             var value = weighinData[key];
             var $row = $('<div class="confirm-row"></div>');
