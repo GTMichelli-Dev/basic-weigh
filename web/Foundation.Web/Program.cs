@@ -307,6 +307,22 @@ app.Use(async (context, next) =>
     // "/Kiosk" is matched exactly (not as a prefix) so the admin-only Kiosks
     // management page at /Kiosks does not inherit the kiosk's PIN gate and
     // become reachable with a driver-facing PIN.
+    // The printable ticket layouts. A kiosk set to Browser printing opens these
+    // in a new tab to print, and its Reprint button does the same — but the
+    // operator grids' "Print to Browser" opens the very same URLs. So they
+    // belong to both audiences: an authenticated operator passes here, and a
+    // kiosk passes on its PIN through the block below. Gating them on the PIN
+    // alone would send logged-in operators to the kiosk numpad; leaving them
+    // out entirely — which is what shipped — put a login form on the driver's
+    // touchscreen instead of their ticket, on a display with no keyboard.
+    var isTicketView = path.StartsWith("/Ticket/KioskView/", StringComparison.OrdinalIgnoreCase)
+                       || path.StartsWith("/Ticket/View/", StringComparison.OrdinalIgnoreCase);
+    if (isTicketView && context.User.Identity?.IsAuthenticated == true)
+    {
+        await next();
+        return;
+    }
+
     // /api/retainedtares/lookup is the kiosk's stored-tare check. Only the
     // lookup: the rest of that controller sets and clears tares and stays
     // admin-only. Left out, the kiosk's GET redirected to /Account/Login, the
@@ -316,6 +332,7 @@ app.Use(async (context, next) =>
     if (path.Equals("/Kiosk", StringComparison.Ordinal) || path.StartsWith("/Kiosk/", StringComparison.Ordinal) ||
         path.StartsWith("/api/kiosk/") ||
         path.StartsWith("/api/retainedtares/lookup", StringComparison.OrdinalIgnoreCase) ||
+        isTicketView ||
         path.StartsWith("/SignaturePad") || path.StartsWith("/api/signature/"))
     {
         var db = context.RequestServices.GetRequiredService<ScaleDbContext>();
