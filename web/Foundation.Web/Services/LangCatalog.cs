@@ -235,12 +235,31 @@ public static class LangCatalog
         ["The truck is not all the way on the scale"] = "El camión no está completamente en la báscula",
         ["The truck is not all the way on the scale — pull forward."] = "El camión no está completamente en la báscula — avance.",
 
+        // Kiosk list states. "Loading" is used bare and gets its own ellipsis
+        // appended by the page, so it needs an entry separate from "Loading…".
+        ["Loading"] = "Cargando",
+        ["Could not reach the server. Check the connection and try again."] = "No se pudo conectar con el servidor. Verifique la conexión e intente de nuevo.",
+
+        // The simulated card reader in the kiosk header. Only shown when the
+        // kiosk is mapped to the demo reader, but a Spanish site running a
+        // demo should not meet English controls.
+        ["Card #"] = "N.º de Tarjeta",
+        ["Scan"] = "Escanear",
+
         // ===== KIOSK: retained tare =====
         // The two answers to the Stored Tare prompt. "Stored Tare" itself is a
         // shared prompt title above.
         ["Finish now — use stored {0} lb"] = "Terminar ahora — usar los {0} lb guardados",
-        ["Reset tare — weigh out on the scale"] = "Restablecer la tara — pesar salida en la báscula",
+        ["Re-tare this truck now"] = "Volver a tarar este camión ahora",
         [" (from {0})"] = " (del {0})",
+
+        // Re-taring at the kiosk. It replaces the truck's stored empty weight
+        // with what is on the scale right now and writes no ticket, so the
+        // confirm screen is named for that and warns if the truck looks loaded.
+        ["Confirm Re-tare"] = "Confirmar Nueva Tara",
+        ["Check the truck is EMPTY — {0} lb is well above the stored tare of {1} lb."] = "Verifique que el camión esté VACÍO — {0} lb supera con creces la tara guardada de {1} lb.",
+        ["Stored tare updated to {0} lb"] = "Tara guardada actualizada a {0} lb",
+        ["No ticket was created."] = "No se creó ninguna boleta.",
 
         // ===== MOBILE: retained tare =====
         ["Reuse stored tare?"] = "¿Usar la tara guardada?",
