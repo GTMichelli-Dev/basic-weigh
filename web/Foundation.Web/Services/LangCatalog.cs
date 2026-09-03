@@ -258,6 +258,9 @@ public static class LangCatalog
         // confirm screen is named for that and warns if the truck looks loaded.
         ["Confirm Re-tare"] = "Confirmar Nueva Tara",
         ["Check the truck is EMPTY — {0} lb is well above the stored tare of {1} lb."] = "Verifique que el camión esté VACÍO — {0} lb supera con creces la tara guardada de {1} lb.",
+        // The phone asks this as its own step; the kiosk carries the same
+        // warning on its confirm screen and needs no separate title.
+        ["Is the truck empty?"] = "¿El camión está vacío?",
         ["Stored tare updated to {0} lb"] = "Tara guardada actualizada a {0} lb",
         ["No ticket was created."] = "No se creó ninguna boleta.",
 

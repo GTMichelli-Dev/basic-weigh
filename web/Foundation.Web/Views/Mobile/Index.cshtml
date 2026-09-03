@@ -656,6 +656,10 @@
     // answer to it. The phone never sends a tare value — only whether to use
     // the one the server holds.
     var tareOffer = null;      // { tare, updated } or null
+    // How far above the tare being replaced a re-tare may go before the driver
+    // is asked whether the truck is really empty. Kept the same as the kiosk's
+    // so the two surfaces do not disagree about what looks loaded.
+    var RETARE_WARN_FACTOR = 1.25;
     var tarePromise = null;    // in-flight lookup, so the ask can wait on it
     var useTareChoice = null;  // true / false once the driver has answered
     var openTicketTare = null; // stored tare for the open ticket's truck, if any
@@ -1535,7 +1539,43 @@
             okClass: 'btn-green',
             cancelLabel: cfg.allowTareReset ? T('Re-tare this truck now') : T('Weigh out later'),
             onOk: function () { useTareChoice = true; proceedWithWeighment(); },
-            onCancel: function () { useTareChoice = false; proceedWithWeighment(); }
+            onCancel: function () {
+                // Declining is only a re-tare when the site allows it; without
+                // that gate it just skips the tare for this load and there is
+                // nothing to warn about.
+                if (cfg.allowTareReset) { confirmRetare(); return; }
+                useTareChoice = false;
+                proceedWithWeighment();
+            }
+        });
+    }
+
+    /// A tare is the weight of an EMPTY truck, and re-taring while loaded puts
+    /// the load into the tare — every load computed off it afterwards is wrong,
+    /// silently. The phone has no confirm screen to carry the kiosk's warning,
+    /// so it gets its own step, and only when the weight says something is off:
+    /// well above the tare being replaced. Generous on purpose, and the same
+    /// factor the kiosk uses — a real tare drifts a few percent with fuel and
+    /// equipment, a loaded truck is multiples of it.
+    function confirmRetare() {
+        var live = scaleData.error ? null : scaleData.weight;
+        if (live === null || !tareOffer || !(tareOffer.tare > 0)
+            || live <= tareOffer.tare * RETARE_WARN_FACTOR) {
+            useTareChoice = false;
+            proceedWithWeighment();
+            return;
+        }
+        showModal({
+            title: T('Is the truck empty?'),
+            text: TF('Check the truck is EMPTY — {0} lb is well above the stored tare of {1} lb.',
+                     live.toLocaleString(), tareOffer.tare.toLocaleString()),
+            okLabel: T('Re-tare this truck now'),
+            okClass: 'btn-red',
+            cancelLabel: T('Back'),
+            onOk: function () { useTareChoice = false; proceedWithWeighment(); },
+            // Back returns to the choice rather than dropping the driver out of
+            // the flow — they may well want "Finish now" instead.
+            onCancel: function () { askReuseTare(); }
         });
     }
 
