@@ -1,3 +1,4 @@
+﻿using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 
 namespace Foundation.Web.Hubs;
@@ -17,6 +18,18 @@ public class ScaleHub : Hub
     private static readonly object _printLock = new();
 
     /// <summary>
+    /// Printers per print service, as last announced: serviceId -> the payload
+    /// the service sent.
+    ///
+    /// Held under the same lock as the connection map so the two cannot disagree
+    /// about which services exist. Without it every page load left the print
+    /// dialog reading "No print services connected" until a full round trip to
+    /// the yard completed — the service had already announced its printers on
+    /// connect, the hub just dropped them on the floor.
+    /// </summary>
+    private static readonly Dictionary<string, object> _printerLists = new();
+
+    /// <summary>
     /// Called by Web Print Service to join the PrintClients group.
     /// </summary>
     public async Task JoinPrintGroup(string serviceId = "default")
@@ -34,17 +47,51 @@ public class ScaleHub : Hub
 
     public async Task PrintServiceReady(object announcement)
     {
+        RememberPrinters(announcement);
         await Clients.All.SendAsync("PrintServiceReady", announcement);
     }
 
     public async Task PrinterListResponse(object printers)
     {
+        RememberPrinters(printers);
         await Clients.All.SendAsync("PrinterListReceived", printers);
     }
 
+    /// <summary>
+    /// Answer from the cache first so the caller's print dialog fills in
+    /// immediately, then ask the services for a fresh list anyway. A printer
+    /// that went away between the two shows briefly and then disappears, which
+    /// beats showing nothing at all for the length of a round trip — and
+    /// printing to it fails the same way it already did.
+    /// </summary>
     public async Task RequestPrinterList()
     {
+        List<object> cached;
+        lock (_printLock) { cached = _printerLists.Values.ToList(); }
+        foreach (var list in cached)
+            await Clients.Caller.SendAsync("PrinterListReceived", list);
+
         await Clients.Group("PrintClients").SendAsync("GetPrinterList");
+    }
+
+    /// <summary>Cache an announcement keyed by its serviceId, ignoring any
+    /// payload that does not carry one — there would be nothing to key it by,
+    /// and a wrong key would hide a real service's printers.</summary>
+    private static void RememberPrinters(object payload)
+    {
+        var serviceId = ReadServiceId(payload);
+        if (string.IsNullOrEmpty(serviceId)) return;
+        lock (_printLock) { _printerLists[serviceId] = payload; }
+    }
+
+    private static string? ReadServiceId(object payload)
+    {
+        // Print services send this as JSON, so it arrives as JsonElement rather
+        // than a type we can read a property off directly.
+        if (payload is JsonElement je && je.ValueKind == JsonValueKind.Object &&
+            je.TryGetProperty("serviceId", out var sid) && sid.ValueKind == JsonValueKind.String)
+            return sid.GetString();
+        return payload?.GetType().GetProperty("serviceId")?.GetValue(payload)?.ToString();
     }
 
     public async Task PrintResult(object result)
@@ -335,9 +382,14 @@ public class ScaleHub : Hub
 
         // Check Print
         bool wasPrint;
+        string? disconnectedPrintServiceId = null;
         lock (_printLock)
         {
-            wasPrint = _printConnections.Remove(Context.ConnectionId, out _);
+            wasPrint = _printConnections.Remove(Context.ConnectionId, out disconnectedPrintServiceId);
+            // Drop the cached printers with the connection, or the print dialog
+            // would keep offering a service that has gone off the network.
+            if (wasPrint && disconnectedPrintServiceId != null)
+                _printerLists.Remove(disconnectedPrintServiceId);
         }
         if (wasPrint)
         {
