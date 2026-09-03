@@ -530,7 +530,14 @@
         /* ===== LIST SELECTOR ===== */
         .list-selector {
             width: 100%;
-            max-width: 1100px;
+            /* The kiosk frame is a fixed 1280x800 (see the viewport meta — a
+                smaller panel scales the whole layout rather than reflowing it),
+                and the prompt screen pads 40px a side, so 1200px is the widest
+                this can be without overflowing. Worth taking: Spanish runs
+                longer than English, and at 1100px the stored-tare choice
+                "Terminar ahora — usar los 15,880 lb guardados (del 3/9/2026)"
+                needed 1076px against 1020px of room and wrapped to two lines. */
+            max-width: 1200px;
             display: flex;
             flex-direction: column;
             flex: 1 1 auto;
@@ -565,6 +572,12 @@
             font-size: 2.4rem;
             font-weight: 600;
             color: #ffffff;
+            /* Rows wrap rather than clip. Long values are normal here — Spanish
+                runs longer than English, and customer and commodity names come
+                from the site's own tables untranslated and unbounded — so a
+                name with no spaces in it must break instead of running off the
+                row and out of the list. */
+            overflow-wrap: anywhere;
             border-bottom: 2px solid #444;
             cursor: pointer;
             transition: background 0.1s;
