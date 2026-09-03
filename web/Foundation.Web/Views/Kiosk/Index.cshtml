@@ -2428,6 +2428,16 @@
         activeFlow = null;
         weighinData = {};
         promptQueue = [];
+        // Everything cancelConfirmation drops, dropped here too. Cancelling
+        // part-way through a card weigh-in used to leave the card behind: the
+        // next driver's keyed weigh-in still posted the previous driver's
+        // cardNumber, and the tare lookup still fell back to that card's
+        // carrier and truck. Whoever cancels, the kiosk goes back to knowing
+        // nothing about the last driver.
+        weighoutTicket = null;
+        activeCardNumber = null;
+        cardValues = {};
+        tareOffer = null;
         setState(readyOrIdle());
     });
 
@@ -2696,6 +2706,7 @@
         promptQueue = [];
         activeCardNumber = null;
         cardValues = {};
+        tareOffer = null;
         setState(readyOrIdle());
     }
 
