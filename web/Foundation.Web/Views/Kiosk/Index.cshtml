@@ -2133,6 +2133,26 @@
                            items: [], loadFrom: 'carrier',
                            allowSkip: kioskSettings.allowSkipTruckId });
         }
+        // Retained tare: when the truck already has a stored empty weight, the
+        // driver chooses whether to finish the load on it or reset it and weigh
+        // out for real. Asked immediately after the truck is known — that is the
+        // earliest point the lookup can run, and the answer decides whether the
+        // visit ends here, so it comes before the driver is asked anything else.
+        // The lookup happens in showNextPrompt, and the prompt drops out when
+        // there is no tare to offer. Weigh-out never asks: it is a real
+        // weighment, and it stores a fresh tare on its own.
+        // Gated per source: a site can let operators at the touchscreen re-tare
+        // while keeping card presentations prompt-free, or forbid both. With the
+        // gate off there is no question to ask, and the server applies the
+        // stored tare automatically the way it always did. A card answers carrier
+        // and truck from the card itself, so this lands first there.
+        var mayReset = fromCard
+            ? kioskSettings.allowTareResetCard
+            : kioskSettings.allowTareResetKiosk;
+        if (inbound && kioskSettings.useRetainedTare && mayReset) {
+            prompts.push({ key: '__tare', title: T('Stored Tare'),
+                           items: [], loadFrom: 'tare', allowSkip: false });
+        }
         if (inbound ? kioskSettings.promptCommodityOnInbound : kioskSettings.promptCommodityOnOutbound) {
             prompts.push({ key: 'commodity', title: T('Select Commodity'),
                            items: lists.commodities,
@@ -2185,23 +2205,6 @@
                                    allowSkip: !f.required });
                 }
             });
-        }
-        // Retained tare: when the truck already has a stored empty weight, the
-        // driver chooses whether to finish the load on it or reset it and weigh
-        // out for real. Asked last, so carrier and truck are already known — the
-        // lookup happens in showNextPrompt, and the prompt drops out when there
-        // is no tare to offer. Weigh-out never asks: it is a real weighment, and
-        // it stores a fresh tare on its own.
-        // Gated per source: a site can let operators at the touchscreen re-tare
-        // while keeping card presentations prompt-free, or forbid both. With the
-        // gate off there is no question to ask, and the server applies the
-        // stored tare automatically the way it always did.
-        var mayReset = fromCard
-            ? kioskSettings.allowTareResetCard
-            : kioskSettings.allowTareResetKiosk;
-        if (inbound && kioskSettings.useRetainedTare && mayReset) {
-            prompts.push({ key: '__tare', title: T('Stored Tare'),
-                           items: [], loadFrom: 'tare', allowSkip: false });
         }
         return prompts;
     }
@@ -2279,7 +2282,7 @@
                 tareOffer = {
                     tare: d.retainedTare,
                     useLabel: TF('Finish now — use stored {0} lb', d.retainedTare.toLocaleString()) + when,
-                    resetLabel: T('Reset tare — weigh out on the scale')
+                    resetLabel: T('Re-tare this truck now')
                 };
                 prompt.items = [tareOffer.useLabel, tareOffer.resetLabel];
                 renderPrompt(prompt);
@@ -2527,6 +2530,20 @@
         }
         promptIndex++;
 
+        // Resetting the tare means this visit is only a re-tare: the ticket
+        // stays open and the truck comes back to weigh out loaded, which is
+        // where the load's details belong. So stop asking here rather than
+        // walking the driver through commodity, customer and the rest for a
+        // leg that has none of it yet — they are asked on the way out.
+        // Whatever a card carried is already in weighinData and still goes up
+        // with the ticket; nothing captured so far is discarded.
+        // Choosing the stored tare instead closes the ticket on the spot, so
+        // that path keeps asking — it is the only chance to record the load.
+        if (prompt.key === '__tare' && tareOffer && selected === tareOffer.resetLabel) {
+            finishPrompts();
+            return;
+        }
+
         // After Carrier + Truck are picked during a weigh-IN, see if there's
         // already an open ticket for this truck. If so, the driver is on a
         // return trip — switch to the weigh-out flow so the operator doesn't
@@ -2751,6 +2768,18 @@
                     : null
             }),
             success: function (result) {
+                // A re-tare stored this visit's weight against the truck and
+                // stopped there — no ticket exists to show, so the completion
+                // screen would have nothing to put on it. Tell the driver what
+                // their tare is now and send them on.
+                if (result.retared) {
+                    tareOffer = null;
+                    showCardOverlay(
+                        TF('Stored tare updated to {0} lb', (result.tare || 0).toLocaleString()),
+                        T('No ticket was created.'));
+                    return;
+                }
+
                 completedCardMessage = cardGuidance(result);
                 // Server may suppress the inbound-leg print when Retained Tare
                 // is on (the in-leg is just data capture; the closing ticket

@@ -597,11 +597,33 @@ public class KioskController : Controller
         var mayResetTare = card != null ? setup.AllowTareResetCard : setup.AllowTareResetKiosk;
         if (tareApplied && request.UseRetainedTare == false && mayResetTare)
         {
-            _log.LogInformation("RetainedTare: kiosk reset tare for {TruckId}/{Carrier} (was {Tare} lb)",
-                truck!.TruckId, truck.CarrierName, truck.RetainedTare);
-            truck.RetainedTare = null;
-            truck.RetainedTareUpdated = null;
-            tareApplied = false;
+            // A re-tare is not a weighment. The driver is on the scale empty
+            // telling us the stored tare is stale, so this visit's weight
+            // becomes the new tare and nothing else happens: no ticket, no
+            // ticket number spent on a truck that never carried a load, and no
+            // open ticket left behind for someone to chase.
+            //
+            // Returning here also leaves the card alone. It has only been read
+            // at this point — binding happens further down with the ticket —
+            // so a driver who re-tares on a card keeps it for the real load.
+            var previousTare = truck!.RetainedTare;
+            truck.RetainedTare = request.Weight;
+            truck.RetainedTareUpdated = DateTime.UtcNow;
+            _db.SaveChanges();
+
+            var retareMsg = $"kiosk re-tared '{truck.TruckId}' / '{truck.CarrierName}' " +
+                            $"from {previousTare} lb to {request.Weight} lb";
+            _log.LogInformation("RetainedTare: {Msg}", retareMsg);
+            Console.WriteLine($"[RetainedTare] {retareMsg}");
+
+            return Ok(new
+            {
+                retared = true,
+                tare = request.Weight,
+                previousTare,
+                truckId = truck.TruckId,
+                carrier = truck.CarrierName
+            });
         }
 
         var now = DateTime.UtcNow;
