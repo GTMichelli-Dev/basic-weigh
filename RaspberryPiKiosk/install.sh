@@ -268,6 +268,33 @@ X-GNOME-Autostart-enabled=false
 EOF
 done
 
+# ---------- retire the old ~/foundation-kiosk folder ----------
+# Releases before this one told the operator to unpack the tarball into
+# ~/foundation-kiosk, while a monorepo checkout landed in ~/foundation. A Pi set
+# up both ways — or updated from one to the other — ended up with two
+# near-identically named folders and no way to tell which one the autostart
+# entry actually points at. Everything now lives under ~/foundation, so the old
+# folder is dead weight; offer to clear it rather than leaving the ambiguity in
+# place. Only its own scripts are removed: anything else in there is the
+# operator's and is left alone (rmdir, not rm -rf).
+LEGACY_DIR="$HOME/foundation-kiosk"
+if [[ -d "$LEGACY_DIR" && "$(cd "$LEGACY_DIR" && pwd -P)" != "$(cd "$SCRIPT_DIR" && pwd -P)" ]]; then
+    say "Found the old kiosk folder at $LEGACY_DIR."
+    echo "  This kiosk now runs from $SCRIPT_DIR, and the autostart entry written"
+    echo "  above points there. The old folder is no longer used by anything."
+    read -r -p "  Remove the old kiosk scripts from $LEGACY_DIR? [Y/n] " ans
+    if [[ "${ans,,}" != "n" ]]; then
+        rm -f "$LEGACY_DIR"/{install.sh,uninstall.sh,kiosk-loop.sh,kiosk-start,kiosk-stop,README.md}
+        if rmdir "$LEGACY_DIR" 2>/dev/null; then
+            say "Removed $LEGACY_DIR."
+        else
+            warn "Left $LEGACY_DIR in place — it still holds files this installer did not put there."
+        fi
+    else
+        warn "Left $LEGACY_DIR alone. Nothing runs from it; delete it whenever you like."
+    fi
+fi
+
 # ---------- done ----------
 cat <<EOF
 

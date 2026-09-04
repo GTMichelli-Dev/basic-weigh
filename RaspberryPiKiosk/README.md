@@ -29,10 +29,12 @@ Simplest path, and the one to use on a Pi OS Lite image with no git installed:
 
 ```bash
 curl -fsSL -o kiosk.tar.gz https://github.com/GTMichelli-Dev/foundation/releases/latest/download/kiosk-pi.tar.gz
-mkdir -p ~/foundation-kiosk && tar -xzf kiosk.tar.gz -C ~/foundation-kiosk
-~/foundation-kiosk/install.sh
+mkdir -p ~/foundation/RaspberryPiKiosk && tar -xzf kiosk.tar.gz -C ~/foundation/RaspberryPiKiosk
+~/foundation/RaspberryPiKiosk/install.sh
 sudo reboot
 ```
+
+`~/foundation/RaspberryPiKiosk` deliberately — it is the *same* path the checkout below produces, so every command in this README works whichever way the Pi was set up, and a Pi never ends up with two similarly-named folders to choose between. Earlier releases said `~/foundation-kiosk`; `install.sh` offers to clear that folder away once the new location is running.
 
 Unpack it somewhere permanent. The autostart entry points at wherever the scripts land, so extracting to `/tmp` gives you a kiosk that stops working at the next reboot.
 
@@ -87,11 +89,13 @@ rm -f /tmp/foundation-bootstrap.sh
 ### Run the installer
 
 ```bash
-cd ~/foundation-kiosk/RaspberryPiKiosk
-chmod + install.sh &&
+cd ~/foundation/RaspberryPiKiosk
+sudo chmod +x install.sh &&
 ./install.sh
 sudo reboot
 ```
+
+Run `install.sh` as yourself, not under `sudo` — it writes the kiosk config and the autostart entry into the desktop user's home, and a root-owned copy of either leaves a kiosk that never starts. It calls `sudo` on its own for the apt installs.
 
 `install.sh` prompts for:
 

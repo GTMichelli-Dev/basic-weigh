@@ -131,6 +131,106 @@ there.
 
 ---
 
+## Starting and stopping the service
+
+The service is installed to start on boot and to restart itself if it crashes,
+so day to day there is nothing to run. These are for maintenance: unplugging the
+reader, swapping a serial adapter, or freeing the port for another tool.
+
+Stopping it does **not** lose anything. Readers and settings live in
+`rfidreaderservice.db` beside the binary, and cards presented while it is
+stopped are simply not seen — there is no queue to drain. What does happen is
+that the web app immediately shows the service as disconnected, and any kiosk
+mapped to one of its readers stops accepting cards until it is back.
+
+### Raspberry Pi / Linux
+
+The unit is `rfid-reader-service`.
+
+```bash
+# Stop
+sudo systemctl stop rfid-reader-service
+
+# Start
+sudo systemctl start rfid-reader-service
+
+# Restart — the usual one after editing appsettings.json
+sudo systemctl restart rfid-reader-service
+
+# Is it running?
+sudo systemctl status rfid-reader-service
+
+# Watch it work (card reads appear here)
+sudo journalctl -u rfid-reader-service -f
+```
+
+Start on boot, on and off:
+
+```bash
+sudo systemctl enable rfid-reader-service     # start at boot (the default)
+sudo systemctl disable rfid-reader-service    # leave it stopped after a reboot
+```
+
+`disable` does not stop a service that is already running, and `stop` does not
+survive a reboot on its own — to take a reader out of service for good, run
+both.
+
+### Windows
+
+The service is `RfidReaderService`, displayed in `services.msc` as
+*RFID Reader Service*. All of these need an **administrator** prompt.
+
+```
+sc stop RfidReaderService
+sc start RfidReaderService
+sc query RfidReaderService
+```
+
+Or in PowerShell, which waits for the state to actually change rather than
+returning the moment the request is accepted:
+
+```powershell
+Stop-Service  RfidReaderService
+Start-Service RfidReaderService
+Restart-Service RfidReaderService
+Get-Service   RfidReaderService
+```
+
+Start on boot, on and off:
+
+```
+sc config RfidReaderService start= auto      # start at boot (the default)
+sc config RfidReaderService start= demand    # only when started by hand
+```
+
+The space after `start=` is required — `sc.exe` rejects the command without it.
+
+### Confirming it came back
+
+The service holds its own executable open, so a stop that has not finished
+blocks the next update. Check that it really stopped and really restarted
+rather than assuming:
+
+```bash
+curl http://localhost:5250/api/status
+```
+
+Stopped, that connection is refused. Running, it answers with each reader's
+state and the last card it saw. The web app agrees a moment later — the service
+reappears under **Setup → Options → Card Readers**, and its readers come back in
+the kiosk's reader list.
+
+If it will not start, the usual cause is the port: another process on 5250 makes
+the service exit immediately, which reads like a crash on startup.
+
+```bash
+sudo journalctl -u rfid-reader-service -n 50 --no-pager   # Linux
+```
+
+On Windows, the same detail is in Event Viewer → Windows Logs → Application.
+
+---
+
 ## Configuration
 
 Readers are normally configured from the web app: **Setup → Options → Card

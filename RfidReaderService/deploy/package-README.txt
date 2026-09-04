@@ -133,6 +133,54 @@ Swagger listens on all interfaces, but Windows Firewall blocks it from other
 machines unless you add an inbound rule for the port (5250 by default).
 
 
+STARTING AND STOPPING IT
+------------------------
+The service starts on boot and restarts itself after a crash, so day to day
+there is nothing to run. These are for maintenance - unplugging the reader,
+swapping a serial adapter, or freeing COM port for another tool.
+
+Run them from an ADMIN command prompt:
+
+    sc stop  RfidReaderService
+    sc start RfidReaderService
+    sc query RfidReaderService
+
+Or from an admin PowerShell, which waits for the state to actually change
+instead of returning as soon as the request is accepted:
+
+    Stop-Service    RfidReaderService
+    Start-Service   RfidReaderService
+    Restart-Service RfidReaderService
+    Get-Service     RfidReaderService
+
+It is also in services.msc as "RFID Reader Service".
+
+To stop it starting at the next boot, and to put it back:
+
+    sc config RfidReaderService start= demand
+    sc config RfidReaderService start= auto
+
+The space after "start=" is required - sc.exe rejects the command without it.
+"demand" does not stop a service that is already running, and "stop" does not
+survive a reboot; to take a reader out of service for good, do both.
+
+Nothing is lost by stopping it. Readers and settings are in
+rfidreaderservice.db beside the .exe, and cards presented while it is stopped
+are simply not seen - there is no queue to drain. What does happen straight
+away is that the web app shows the service as disconnected, and any kiosk
+mapped to one of its readers stops accepting cards until it is back.
+
+Confirm it really came back rather than assuming - the service holds its own
+.exe open, so a stop that has not finished blocks the next update:
+
+    curl http://localhost:5250/api/status
+
+Refused means stopped. An answer means running, with each reader's state and
+the last card seen. If it will not start, the usual cause is another process
+already on port 5250, which makes it exit immediately and looks like a crash;
+Event Viewer -> Windows Logs -> Application has the detail.
+
+
 COMMISSIONING A READER
 ----------------------
 The default format is Wiegand26 - the AWID Sentinel-Prox SP-6820's format, sent

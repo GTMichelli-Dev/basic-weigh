@@ -264,7 +264,14 @@ app.Use(async (context, next) =>
         path.StartsWith("/_content/") || path.StartsWith("/favicon") ||
         path.StartsWith("/api/scale/") || path.StartsWith("/scaleHub") ||
         path.StartsWith("/api/setup/icon") ||
-        path.StartsWith("/swagger"))
+        path.StartsWith("/swagger") ||
+        // UseExceptionHandler re-executes /Home/Error, and that re-execution runs
+        // this middleware again. Gated, an unhandled exception on any anonymous
+        // endpoint came back as a 302 to the login page instead of a 500 — so a
+        // failing device service looked to its own logs like an authentication
+        // problem, which is the one thing it was not. The page itself carries a
+        // request id and boilerplate, nothing worth a login.
+        path.StartsWith("/Home/Error", StringComparison.OrdinalIgnoreCase))
     {
         await next();
         return;
@@ -291,6 +298,50 @@ app.Use(async (context, next) =>
     {
         await next();
         return;
+    }
+
+    // The rest of the device-side services, for the same reason as the ticket
+    // PDF above: each is a daemon holding a SignalR connection to /scaleHub —
+    // which is already ungated — and reaching back over plain HTTP for the one
+    // or two things SignalR cannot carry. None of them has a cookie jar or a
+    // login to use.
+    //
+    // Left gated they did not fail cleanly, which is what makes this worth an
+    // explicit exception rather than a note in the manual. A POST that meets
+    // the 302 to /Account/Login is followed by HttpClient as a GET, and the
+    // login page comes back 200 OK — so `IsSuccessStatusCode` is true and the
+    // service reports success for a request the server never carried out:
+    //
+    //   POST /api/ticket/{id}/image        Camera Service. Logs "Image uploaded"
+    //                                      for a ticket that has no photo. The
+    //                                      operator finds out at dispute time.
+    //   POST /api/transactions/mark-sent-to-qb
+    //                                      QB Sync. Invoices exist in QuickBooks
+    //                                      but the tickets stay unmarked, so the
+    //                                      next run invoices them again.
+    //   POST /api/masterdata/sync/{customers,commodities}
+    //                                      QB Sync. Fails on parsing the login
+    //                                      page as JSON, and reports the sync
+    //                                      as failed for a reason that names
+    //                                      neither login nor this redirect.
+    //
+    // Matched exactly, and only for POST, so nothing else under these
+    // controllers loses its gate: /api/masterdata/customers stays admin-only,
+    // and so does the rest of /api/transactions/.
+    if (HttpMethods.IsPost(context.Request.Method))
+    {
+        var isServiceUpload =
+            (path.StartsWith("/api/ticket/", StringComparison.OrdinalIgnoreCase) &&
+             path.EndsWith("/image", StringComparison.OrdinalIgnoreCase)) ||
+            path.Equals("/api/transactions/mark-sent-to-qb", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/api/masterdata/sync/customers", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/api/masterdata/sync/commodities", StringComparison.OrdinalIgnoreCase);
+
+        if (isServiceUpload)
+        {
+            await next();
+            return;
+        }
     }
 
     // Kiosk / signature pad access: check PIN if UseLogin is on. The signature

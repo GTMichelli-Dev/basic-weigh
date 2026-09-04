@@ -212,10 +212,16 @@ jobs:
 
           \`\`\`
           curl -fsSL -o kiosk.tar.gz https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/kiosk-pi.tar.gz
-          mkdir -p ~/foundation-kiosk && tar -xzf kiosk.tar.gz -C ~/foundation-kiosk
-          ~/foundation-kiosk/install.sh
+          mkdir -p ~/foundation/RaspberryPiKiosk && tar -xzf kiosk.tar.gz -C ~/foundation/RaspberryPiKiosk
+          ~/foundation/RaspberryPiKiosk/install.sh
           sudo reboot
           \`\`\`
+
+          \`~/foundation/RaspberryPiKiosk\` is the same path a monorepo checkout
+          produces, so a Pi ends up with one Foundation folder however it was
+          set up. Releases before this one said \`~/foundation-kiosk\`; the
+          installer offers to clear that folder away once the new location is
+          running.
 
           Extract it somewhere permanent - the autostart entry points at
           wherever you unpack it, so \`/tmp\` leaves a kiosk that stops working

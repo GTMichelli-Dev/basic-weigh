@@ -966,6 +966,22 @@ https://your-server/Kiosk?service-id=office-1&printer-id=BIXOLON_BK3&scale-id=2&
 
 If you're deploying a Pi-driven kiosk display, [`RaspberryPiKiosk/install.sh`](RaspberryPiKiosk/README.md) prompts for all three values and assembles the full URL — no need to hand-edit it into the boot config.
 
+**Device Services with Login Enabled:** the Scale, RFID Reader, Print, Camera, Gate and QB Sync services need no credentials and no configuration change when "Require Login" is turned on. They are daemons on the yard network with no cookie jar and no login screen to use, so the endpoints they depend on are exempt from the gate by design:
+
+| Path | Used by |
+|------|---------|
+| `/scaleHub` | every service — the SignalR channel that carries weights, card reads, print and capture commands |
+| `GET /api/ticket/{id}/pdf` | Print Service, Kiosk Print Agent |
+| `POST /api/ticket/{id}/image` | Camera Service (ticket photos) |
+| `POST /api/masterdata/sync/{customers,commodities}` | QB Sync |
+| `POST /api/transactions/mark-sent-to-qb` | QB Sync |
+
+Nothing else opens up: the rest of `/api/masterdata/` and `/api/transactions/` stays gated, and each exemption is matched exactly and only for the verb the service uses.
+
+This matters because the failure was silent rather than loud. A gated `POST` meets a 302 to `/Account/Login`, `HttpClient` follows it as a `GET`, and the login page comes back `200 OK` — so the service logged success for a request the server never carried out. Camera Service reported photos it had not stored; QB Sync marked tickets as invoiced when they had not been, and re-invoiced them on the next run.
+
+To confirm a site is healthy after switching Require Login on, weigh one ticket end to end and check that the photo appears on it. If a service does misbehave, its own log now shows a real status code rather than a redirect to a login page it was never meant to see.
+
 ### Updating Device Definitions
 
 Scale brand / model / protocol metadata (baud rate, parity, weight regex, etc.) does **not** live in this repo. It lives in a separate public repo:
