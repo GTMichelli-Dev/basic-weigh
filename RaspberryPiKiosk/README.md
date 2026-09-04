@@ -57,6 +57,7 @@ set -e
 missing=()
 command -v git  >/dev/null 2>&1 || missing+=(git)
 command -v curl >/dev/null 2>&1 || missing+=(curl)
+
 if (( ${#missing[@]} > 0 )); then
   echo "Installing: ${missing[*]}"
   sudo apt-get update -y
