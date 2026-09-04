@@ -55,6 +55,7 @@ set -e
 missing=()
 command -v git  >/dev/null 2>&1 || missing+=(git)
 command -v curl >/dev/null 2>&1 || missing+=(curl)
+
 if (( ${#missing[@]} > 0 )); then
   echo "Installing: ${missing[*]}"
   sudo apt-get update -y
@@ -64,20 +65,21 @@ fi
 # Clone with partial + sparse checkout — fetches commits & trees for the whole repo
 # (small), but only the file blobs for RaspberryPiKiosk/. Public repo, no auth.
 cd ~
-if [[ -d foundation/.git ]]; then
-  echo "foundation already cloned — pulling latest."
-  cd foundation
+if [[ -d foundation-kiosk/.git ]]; then
+  echo "foundation-kiosk already cloned — pulling latest."
+  cd foundation-kiosk
   git sparse-checkout set RaspberryPiKiosk
   git pull --ff-only
 else
-  git clone --filter=blob:none --sparse https://github.com/GTMichelli-Dev/foundation.git
-  cd foundation
+  # Clone directly into the foundation-kiosk directory
+  git clone --filter=blob:none --sparse https://github.com/GTMichelli-Dev/foundation.git foundation-kiosk
+  cd foundation-kiosk
   git sparse-checkout set RaspberryPiKiosk
 fi
 
 echo
 echo "Done. Next:"
-echo "  cd ~/foundation/RaspberryPiKiosk && ./install.sh && sudo reboot"
+echo "  cd ~/foundation-kiosk/RaspberryPiKiosk && ./install.sh && sudo reboot"
 BOOTSTRAP_EOF
 
 bash /tmp/foundation-bootstrap.sh </dev/tty
