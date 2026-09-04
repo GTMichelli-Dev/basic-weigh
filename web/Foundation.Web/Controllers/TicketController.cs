@@ -16,15 +16,18 @@ public class TicketController : Controller
     private readonly PrintQueueService _printQueue;
     private readonly IHubContext<ScaleHub> _hub;
     private readonly AppSetupCache _setupCache;
+    private readonly ILogger<TicketController> _log;
     private static readonly string ReportPath = Path.Combine(
         Directory.GetCurrentDirectory(), "Reports", "TicketReport.repx");
 
-    public TicketController(ScaleDbContext db, PrintQueueService printQueue, IHubContext<ScaleHub> hub, AppSetupCache setupCache)
+    public TicketController(ScaleDbContext db, PrintQueueService printQueue, IHubContext<ScaleHub> hub,
+        AppSetupCache setupCache, ILogger<TicketController> log)
     {
         _db = db;
         _printQueue = printQueue;
         _hub = hub;
         _setupCache = setupCache;
+        _log = log;
     }
 
     public IActionResult Print(string id)
@@ -190,6 +193,12 @@ public class TicketController : Controller
     [HttpGet("api/mobile/ticket/{id}/pdf")]
     public IActionResult GetTicketPdf(string id)
     {
+        // Timed end to end. A ticket that takes ten seconds to come out of the
+        // printer is either slow here (building and rasterising the report) or
+        // slow getting here (the print service re-opening its HTTPS connection),
+        // and those two need opposite fixes. The log line says which.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
         var transaction = _db.Transactions.Find(id);
         if (transaction == null) return NotFound();
 
@@ -253,9 +262,15 @@ public class TicketController : Controller
             SetParam(report, "Header4", setup.Header4 ?? "");
         }
 
+        var builtAt = sw.ElapsedMilliseconds;
+
         using var ms = new MemoryStream();
         report.ExportToPdf(ms);
         ms.Position = 0;
+
+        _log.LogInformation(
+            "Ticket {Ticket} PDF: build {BuildMs}ms, export {ExportMs}ms, {Bytes} bytes",
+            id, builtAt, sw.ElapsedMilliseconds - builtAt, ms.Length);
 
         // If this ticket was awaiting remote print confirmation, broadcast it
         if (_printQueue.TryConfirm(id))
