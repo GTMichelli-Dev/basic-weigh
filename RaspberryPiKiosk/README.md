@@ -90,7 +90,7 @@ rm -f /tmp/foundation-bootstrap.sh
 
 ```bash
 cd ~/foundation-kiosk/RaspberryPiKiosk
-chmod + install.sh &&
+sudo chmod + install.sh &&
 ./install.sh
 sudo reboot
 ```
