@@ -4,7 +4,17 @@
 
 <div class="d-flex justify-content-between align-items-center mb-2">
     <h3 class="mb-0">Camera Management</h3>
-    <a href="/Setup" class="btn btn-outline-secondary btn-sm"><i class="fa fa-arrow-left"></i> Back to Setup</a>
+    <div class="d-flex gap-2">
+        @* Hidden unless the site enabled live view. The route refuses the page
+           independently, so this is convenience rather than the actual gate. *@
+        @if ((bool?)ViewBag.UseLiveView == true)
+        {
+            <button type="button" class="btn btn-outline-primary btn-sm" onclick="openLiveView()">
+                <i class="fa fa-video"></i> Live View
+            </button>
+        }
+        <a href="/Setup" class="btn btn-outline-secondary btn-sm"><i class="fa fa-arrow-left"></i> Back to Setup</a>
+    </div>
 </div>
 
 <!-- Camera Assignments -->
@@ -135,6 +145,23 @@
                     </div>
                     <input type="hidden" id="camIsDefault" value="false" />
                 </div>
+                @* Live view. Only meaningful for IP cameras — go2rtc pulls RTSP,
+                   which a USB capture cannot provide. Shown only when the site has
+                   Use Live View switched on in Setup. *@
+                <div id="liveViewFields" class="row g-2 mb-2" style="display:none;">
+                    <div class="col-4">
+                        <label class="form-label mb-0 small">Live View</label>
+                        <select class="form-select form-select-sm" id="camLiveView">
+                            <option value="false">No</option>
+                            <option value="true">Yes</option>
+                        </select>
+                    </div>
+                    <div class="col-8">
+                        <label class="form-label mb-0 small">RTSP URL (optional)</label>
+                        <input type="text" class="form-control form-control-sm" id="camRtspUrl"
+                               placeholder="Leave empty to use the brand default (sub-stream)" autocomplete="off" />
+                    </div>
+                </div>
                 <div id="brandNotes" class="small text-muted" style="display:none;"></div>
             </div>
             <div class="modal-footer">
@@ -209,6 +236,14 @@
     var pendingDeleteCameraId = '';
 
     // ===== SIGNALR EVENT HANDLERS =====
+
+    var USE_LIVE_VIEW = @(((bool?)ViewBag.UseLiveView == true) ? "true" : "false");
+
+    // A real window rather than a modal: the point of the popout is a second
+    // monitor, so it has to survive being dragged off this one and refreshed.
+    function openLiveView() {
+        window.open('/Camera/Live', 'foundationLiveView', 'width=1024,height=720,resizable=yes');
+    }
 
     connection.on('CameraServiceStatusChanged', function (serviceIds) {
         console.log('[Camera] CameraServiceStatusChanged:', JSON.stringify(serviceIds));
@@ -448,6 +483,8 @@
         document.getElementById('camTimeout').value = cam.timeoutSeconds || 10;
         document.getElementById('camActive').value = cam.active ? 'true' : 'false';
         document.getElementById('camIsDefault').value = cam.isDefault ? 'true' : 'false';
+        document.getElementById('camLiveView').value = cam.liveViewEnabled ? 'true' : 'false';
+        document.getElementById('camRtspUrl').value = cam.rtspUrl || '';
         toggleBrandFields();
 
         if (cameraBrands.length === 0) connection.invoke('RequestCameraBrands');
@@ -469,7 +506,9 @@
             usbCommand: document.getElementById('camUsbCommand').value.trim(),
             timeoutSeconds: parseInt(document.getElementById('camTimeout').value) || 10,
             active: document.getElementById('camActive').value === 'true',
-            isDefault: document.getElementById('camIsDefault').value === 'true'
+            isDefault: document.getElementById('camIsDefault').value === 'true',
+            liveViewEnabled: document.getElementById('camLiveView').value === 'true',
+            rtspUrl: document.getElementById('camRtspUrl').value.trim()
         };
 
         if (!config.cameraId) {
@@ -609,6 +648,8 @@
         document.getElementById('customUrlField').style.display = (isCustom && isIP) ? '' : 'none';
         document.getElementById('customUsbCmdField').style.display = (isCustom && !isIP) ? '' : 'none';
 
+        updateLiveViewFieldVisibility(!isIP);
+
         var notesEl = document.getElementById('brandNotes');
         if (def && def.notes) {
             notesEl.textContent = def.notes;
@@ -620,11 +661,20 @@
 
     // ===== HELPERS =====
 
+    // Live view fields appear only when the site has it switched on in Setup, and
+    // only for IP cameras: go2rtc pulls RTSP, and a USB capture has none to give.
+    function updateLiveViewFieldVisibility(isUsb) {
+        var el = document.getElementById('liveViewFields');
+        if (!el) return;
+        el.style.display = (USE_LIVE_VIEW && !isUsb) ? 'flex' : 'none';
+    }
+
     function clearCameraForm() {
         ['camCameraId', 'camDisplayName', 'camIp', 'camUser', 'camPassword',
-         'camUsbDevice', 'camCustomUrl', 'camUsbCommand'].forEach(function (id) {
+         'camUsbDevice', 'camCustomUrl', 'camUsbCommand', 'camRtspUrl'].forEach(function (id) {
             document.getElementById(id).value = '';
         });
+        document.getElementById('camLiveView').value = 'false';
         document.getElementById('camTimeout').value = 10;
         document.getElementById('camActive').value = 'true';
         document.getElementById('camIsDefault').value = 'false';

@@ -203,6 +203,21 @@ public class AppSetup
     [Display(Name = "Save Picture for Ticket")]
     public bool SavePicture { get; set; }
 
+    /// <summary>
+    /// Offers operators a live video popout for the cameras, so a truck can be
+    /// weighed by someone who is not standing at the scale house.
+    ///
+    /// Separate from SavePicture: ticket photos and live video are different jobs.
+    /// The photo is the record and stays a full-resolution snapshot; live view is
+    /// disposable video for a human to look at. A site can want either without the
+    /// other.
+    ///
+    /// This switch alone does not show the button — the camera service must also
+    /// report that it can actually stream. See ScaleHub's live view capability.
+    /// </summary>
+    [Display(Name = "Use Live View")]
+    public bool UseLiveView { get; set; }
+
     // Camera assignments (format: "serviceId:cameraId")
     [StringLength(100)]
     [Display(Name = "Inbound Camera")]

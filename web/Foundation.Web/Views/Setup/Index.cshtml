@@ -309,6 +309,16 @@
                                         Cameras
                                     </a>
                                 </div>
+                                @* Independent of SavePicture on purpose: a site can want
+                                   operators watching the lane without storing ticket photos,
+                                   or the reverse. *@
+                                <div class="col-4">
+                                    <label asp-for="UseLiveView" class="form-label mb-0 small"></label>
+                                    <select asp-for="UseLiveView" class="form-select form-select-sm" id="UseLiveView">
+                                        <option value="false">No</option>
+                                        <option value="true">Yes</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="row g-2 mb-2">
                                 <div class="col-4">

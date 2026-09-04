@@ -31,6 +31,7 @@ public class HomeController : Controller
 
     public IActionResult Index()
     {
+        ViewBag.UseLiveView = _setupCache.Get().UseLiveView;
         return View();
     }
 

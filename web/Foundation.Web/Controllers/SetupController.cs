@@ -92,6 +92,7 @@ public class SetupController : Controller
         existing.BinCommodityLock = setup.BinCommodityLock;
         existing.DefaultReportUnit = setup.DefaultReportUnit == "kg" ? "kg" : "lbs";
         existing.SavePicture = setup.SavePicture;
+        existing.UseLiveView = setup.UseLiveView;
         existing.UseRetainedTare = setup.UseRetainedTare;
         existing.AutoClearStaleRetainedTare = setup.AutoClearStaleRetainedTare;
         existing.AllowTareResetKiosk = setup.AllowTareResetKiosk;

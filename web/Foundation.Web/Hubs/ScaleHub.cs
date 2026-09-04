@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.SignalR;
 
 namespace Foundation.Web.Hubs;
@@ -12,6 +12,17 @@ public class ScaleHub : Hub
     // Track connected camera services: connectionId -> serviceId
     private static readonly Dictionary<string, string> _cameraConnections = new();
     private static readonly object _cameraLock = new();
+
+    /// <summary>
+    /// Live view capability per camera service, as last announced: serviceId ->
+    /// the cameras it can actually stream.
+    ///
+    /// Held because a page that loads after the service announced would otherwise
+    /// have no way to know, and asking every service to re-announce on each page
+    /// load would be worse. Kept under _cameraLock with the connection map so the
+    /// two cannot disagree about which services exist.
+    /// </summary>
+    private static readonly Dictionary<string, List<string>> _cameraLiveView = new();
 
     // Track connected print services: connectionId -> serviceId
     private static readonly Dictionary<string, string> _printConnections = new();
@@ -223,7 +234,101 @@ public class ScaleHub : Hub
 
     public async Task CameraServiceReady(object announcement)
     {
+        RecordLiveViewCapability(announcement);
         await Clients.All.SendAsync("CameraServiceReady", announcement);
+    }
+
+    /// <summary>
+    /// Pulls the live view capability out of a service's announcement.
+    ///
+    /// Read defensively rather than through a typed model: a camera service older
+    /// than live view sends no liveView block at all, and it must keep working
+    /// untouched. A service that does not claim the capability is recorded as
+    /// having no streamable cameras, which is what hides the popout button —
+    /// operators are never offered video that cannot start.
+    /// </summary>
+    private static void RecordLiveViewCapability(object announcement)
+    {
+        try
+        {
+            if (announcement is not JsonElement root || root.ValueKind != JsonValueKind.Object)
+                return;
+
+            if (!root.TryGetProperty("serviceId", out var serviceIdEl)) return;
+            var serviceId = serviceIdEl.GetString();
+            if (string.IsNullOrEmpty(serviceId)) return;
+
+            var cameras = new List<string>();
+
+            if (root.TryGetProperty("liveView", out var liveView) &&
+                liveView.ValueKind == JsonValueKind.Object &&
+                liveView.TryGetProperty("available", out var available) &&
+                available.ValueKind == JsonValueKind.True &&
+                liveView.TryGetProperty("cameras", out var camerasEl) &&
+                camerasEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var c in camerasEl.EnumerateArray())
+                {
+                    var id = c.GetString();
+                    if (!string.IsNullOrEmpty(id)) cameras.Add(id);
+                }
+            }
+
+            lock (_cameraLock) { _cameraLiveView[serviceId] = cameras; }
+        }
+        catch
+        {
+            // A malformed announcement must not take the hub down or stop the
+            // re-broadcast — snapshot capture does not depend on any of this.
+        }
+    }
+
+    /// <summary>
+    /// Camera services that can stream right now, with the cameras each offers.
+    /// The popout asks this on load rather than waiting for an announcement that
+    /// may already have happened.
+    /// </summary>
+    public Task<Dictionary<string, List<string>>> GetLiveViewCameras()
+    {
+        lock (_cameraLock)
+        {
+            var connected = _cameraConnections.Values.Distinct().ToHashSet();
+            return Task.FromResult(_cameraLiveView
+                .Where(kv => connected.Contains(kv.Key) && kv.Value.Count > 0)
+                .ToDictionary(kv => kv.Key, kv => kv.Value.ToList()));
+        }
+    }
+
+    // ===== LIVE VIEW SIGNALLING =====
+    //
+    // The browser and the camera service cannot reach each other: the service is
+    // behind the site's NAT and only ever dials out, and with a cloud-hosted
+    // server the browser is somewhere else entirely. So the WebRTC handshake
+    // borrows the connection the service already holds — offer down, answer back.
+    //
+    // Only the handshake travels this way. Once the two sides have exchanged SDP
+    // they connect directly, which is the point: an operator on the site's own
+    // network gets a LAN path to the camera, and the video never touches this
+    // server.
+
+    /// <summary>Relays a browser's WebRTC offer to the camera service that owns
+    /// the camera. The requestId comes back on the answer, so concurrent popouts
+    /// do not pick up each other's replies.</summary>
+    public async Task RequestStream(string serviceId, string cameraId, string requestId, string sdp)
+    {
+        await Clients.Group($"Camera_{serviceId}").SendAsync("RequestStream", new
+        {
+            requestId,
+            cameraId,
+            sdp
+        });
+    }
+
+    /// <summary>Camera service -> web clients: go2rtc's answer, or why there
+    /// isn't one.</summary>
+    public async Task StreamAnswer(object result)
+    {
+        await Clients.All.SendAsync("StreamAnswer", result);
     }
 
     public async Task CameraServiceDisconnected(string serviceId)
@@ -363,6 +468,12 @@ public class ScaleHub : Hub
         }
         if (wasCamera)
         {
+            if (disconnectedServiceId != null)
+            {
+                // Drop the capability with the connection. A stale entry would
+                // leave the popout button offering a service that has gone away.
+                lock (_cameraLock) { _cameraLiveView.Remove(disconnectedServiceId); }
+            }
             await Clients.All.SendAsync("CameraServiceStatusChanged", GetConnectedCameraServiceIds());
             if (disconnectedServiceId != null)
                 await Clients.All.SendAsync("CameraServiceDisconnected", disconnectedServiceId);

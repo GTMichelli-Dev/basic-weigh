@@ -53,4 +53,14 @@ public class CameraConfig
 
     /// <summary>Whether this is the default camera when no cameraId is specified</summary>
     public bool IsDefault { get; set; }
+
+    /// <summary>RTSP URL override for live view. Empty means the camera service
+    /// builds one from the brand's template.</summary>
+    [StringLength(500)]
+    public string? RtspUrl { get; set; }
+
+    /// <summary>Whether this camera is offered in the live view popout. Separate
+    /// from Active: a camera can be trusted for ticket photos without being one an
+    /// operator should be able to watch.</summary>
+    public bool LiveViewEnabled { get; set; }
 }

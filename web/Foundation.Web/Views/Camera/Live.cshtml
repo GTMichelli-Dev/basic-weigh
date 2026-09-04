@@ -1,0 +1,428 @@
+@model Foundation.Web.Models.AppSetup
+@{
+    // Standalone, like the kiosk: this opens as its own window on a second
+    // monitor, so the dashboard nav would only take up room.
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="@L.Code">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Foundation - @L["Live View"]</title>
+    @await Html.PartialAsync("_LangJs")
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body {
+            height: 100%;
+            background: #111;
+            color: #eee;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+
+        .wrap {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .toolbar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            background: #1c1c1c;
+            border-bottom: 1px solid #333;
+            flex: 0 0 auto;
+        }
+
+        .toolbar select {
+            background: #2a2a2a;
+            color: #eee;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 5px 8px;
+            font-size: 0.9rem;
+            min-width: 180px;
+        }
+
+        .toolbar button {
+            background: #2a2a2a;
+            color: #eee;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 5px 12px;
+            font-size: 0.9rem;
+            cursor: pointer;
+        }
+
+        .toolbar button:hover { background: #383838; }
+
+        .spacer { flex: 1 1 auto; }
+
+        /* Connection state, so the operator can tell "still connecting" from
+           "connected but the camera is dark". */
+        .state {
+            font-size: 0.85rem;
+            padding: 3px 10px;
+            border-radius: 10px;
+            background: #333;
+            color: #bbb;
+            white-space: nowrap;
+        }
+
+        .state.live      { background: #14421f; color: #6f6; }
+        .state.connecting{ background: #43391a; color: #fc6; }
+        .state.failed    { background: #4a1d1d; color: #f88; }
+
+        .stage {
+            flex: 1 1 auto;
+            position: relative;
+            background: #000;
+            min-height: 0;
+        }
+
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            background: #000;
+            display: block;
+        }
+
+        .overlay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 20px;
+            color: #999;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .overlay.hidden { display: none; }
+
+        /* The weight panel is the reason this is an operator console and not a
+           video window: someone weighing remotely has no other way to know the
+           scale is settled. */
+        .readout {
+            flex: 0 0 auto;
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 14px;
+            padding: 10px 12px;
+            background: #1c1c1c;
+            border-top: 1px solid #333;
+            font-family: 'Roboto Mono', 'DejaVu Sans Mono', Consolas, Menlo, monospace;
+        }
+
+        .readout .value {
+            font-size: clamp(2rem, 7vw, 3.4rem);
+            font-weight: 700;
+            color: #0f0;
+            line-height: 1;
+        }
+
+        .readout .unit { font-size: 1.1rem; color: #0a0; }
+
+        .readout .status {
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+        }
+
+        .readout .scale {
+            font-size: 0.8rem;
+            color: #777;
+            font-family: 'Segoe UI', Arial, sans-serif;
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="toolbar">
+        <select id="cameraSelect" onchange="onCameraChange()">
+            <option value="">@L["Loading cameras..."]</option>
+        </select>
+        <button type="button" onclick="reconnect()">@L["Reconnect"]</button>
+        <span class="spacer"></span>
+        <span id="state" class="state">@L["Idle"]</span>
+    </div>
+
+    <div class="stage">
+        <video id="video" autoplay playsinline muted></video>
+        <div id="overlay" class="overlay">@L["Select a camera to start."]</div>
+    </div>
+
+    <div class="readout">
+        <span class="value" id="weightValue">---</span>
+        <span class="unit" id="weightUnit">@(Model.DefaultReportUnit ?? "lbs")</span>
+        <span class="status" id="weightStatus"></span>
+        <span class="scale" id="scaleName"></span>
+    </div>
+</div>
+
+<script src="/js/signalr/signalr.min.js"></script>
+<script>
+    var connection = new signalR.HubConnectionBuilder()
+        .withUrl('/scaleHub')
+        .withAutomaticReconnect()
+        .build();
+
+    var pc = null;              // current RTCPeerConnection
+    var pendingRequestId = null; // request we are waiting on an answer for
+    var services = {};          // serviceId -> [cameraId]
+
+    function setState(text, cls) {
+        var el = document.getElementById('state');
+        el.textContent = text;
+        el.className = 'state' + (cls ? ' ' + cls : '');
+    }
+
+    function setOverlay(text) {
+        var el = document.getElementById('overlay');
+        if (!text) { el.classList.add('hidden'); return; }
+        el.textContent = text;
+        el.classList.remove('hidden');
+    }
+
+    function escHtml(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+        });
+    }
+
+    // ===== CAMERA LIST =====
+
+    // Cameras come from the hub's record of what each service announced, not from
+    // the camera table. A camera can be configured and capturing ticket photos
+    // while its service has no go2rtc running, and offering it here would just
+    // hand the operator a button that fails.
+    function loadCameras() {
+        connection.invoke('GetLiveViewCameras').then(function (map) {
+            services = map || {};
+            var sel = document.getElementById('cameraSelect');
+            var previous = sel.value;
+            sel.innerHTML = '';
+
+            var count = 0;
+            Object.keys(services).forEach(function (serviceId) {
+                (services[serviceId] || []).forEach(function (cameraId) {
+                    var opt = document.createElement('option');
+                    opt.value = serviceId + '|' + cameraId;
+                    opt.textContent = cameraId + ' (' + serviceId + ')';
+                    sel.appendChild(opt);
+                    count++;
+                });
+            });
+
+            if (count === 0) {
+                var none = document.createElement('option');
+                none.value = '';
+                none.textContent = T('No cameras available');
+                sel.appendChild(none);
+                setOverlay(T('No camera service is offering live view. Check that go2rtc is installed and the cameras are enabled for live view.'));
+                stop();
+                return;
+            }
+
+            // Keep the operator on the camera they were watching across a
+            // reconnect or a service re-announcing.
+            if (previous && Array.prototype.some.call(sel.options, function (o) { return o.value === previous; })) {
+                sel.value = previous;
+            } else {
+                start();
+            }
+        }).catch(function (err) {
+            console.error('[LiveView] GetLiveViewCameras failed:', err);
+            setOverlay(T('Could not load the camera list.'));
+        });
+    }
+
+    function onCameraChange() { start(); }
+    function reconnect() { start(); }
+
+    // ===== WEBRTC =====
+
+    function stop() {
+        if (pc) {
+            try { pc.close(); } catch (e) { /* already closed */ }
+            pc = null;
+        }
+        pendingRequestId = null;
+        document.getElementById('video').srcObject = null;
+    }
+
+    function newRequestId() {
+        // Correlates our answer among the hub's broadcasts. Only has to be unique
+        // among the popouts open right now.
+        return 'lv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    }
+
+    // Waits for ICE gathering to finish before sending the offer.
+    //
+    // go2rtc answers in one shot, and there is no trickle path back through the
+    // hub, so the offer has to carry every candidate it is ever going to have.
+    function waitForIceGathering(peer) {
+        if (peer.iceGatheringState === 'complete') return Promise.resolve();
+        return new Promise(function (resolve) {
+            // Some candidates (notably relay ones behind a slow TURN server) can
+            // take a while; do not wait forever for a stream the operator wants now.
+            var timer = setTimeout(finish, 3000);
+            function finish() {
+                clearTimeout(timer);
+                peer.removeEventListener('icegatheringstatechange', onChange);
+                resolve();
+            }
+            function onChange() {
+                if (peer.iceGatheringState === 'complete') finish();
+            }
+            peer.addEventListener('icegatheringstatechange', onChange);
+        });
+    }
+
+    function start() {
+        var value = document.getElementById('cameraSelect').value;
+        if (!value) return;
+
+        var parts = value.split('|');
+        var serviceId = parts[0];
+        var cameraId = parts[1];
+
+        stop();
+        setState(T('Connecting'), 'connecting');
+        setOverlay(T('Connecting to') + ' ' + cameraId + '...');
+
+        pc = new RTCPeerConnection({
+            // Public STUN is enough to find a direct path on the site's own LAN
+            // and across most home/office NATs. Sites whose NAT defeats it need a
+            // TURN server configured on the Pi's go2rtc; this page does not have
+            // to know about it, since go2rtc offers the relay candidate itself.
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+
+        var thisPc = pc;
+
+        pc.addTransceiver('video', { direction: 'recvonly' });
+
+        pc.ontrack = function (event) {
+            if (thisPc !== pc) return; // superseded by a newer request
+            document.getElementById('video').srcObject = event.streams[0];
+            setState(T('Live'), 'live');
+            setOverlay(null);
+        };
+
+        pc.onconnectionstatechange = function () {
+            if (thisPc !== pc) return;
+            if (pc.connectionState === 'failed') {
+                setState(T('Failed'), 'failed');
+                setOverlay(T('Could not reach the camera. If this operator is off-site, the connection may need a TURN server.'));
+            } else if (pc.connectionState === 'disconnected') {
+                setState(T('Reconnecting'), 'connecting');
+            }
+        };
+
+        var requestId = newRequestId();
+        pendingRequestId = requestId;
+
+        pc.createOffer()
+            .then(function (offer) { return pc.setLocalDescription(offer); })
+            .then(function () { return waitForIceGathering(pc); })
+            .then(function () {
+                if (thisPc !== pc) return;
+                return connection.invoke('RequestStream', serviceId, cameraId, requestId, pc.localDescription.sdp);
+            })
+            .catch(function (err) {
+                console.error('[LiveView] offer failed:', err);
+                setState(T('Failed'), 'failed');
+                setOverlay(T('Could not start the stream.') + ' ' + (err && err.message ? err.message : ''));
+            });
+    }
+
+    // The hub broadcasts answers, so ignore everything that is not the request
+    // this window is waiting on.
+    connection.on('StreamAnswer', function (result) {
+        if (!result || result.requestId !== pendingRequestId) return;
+        pendingRequestId = null;
+
+        if (!result.success) {
+            console.error('[LiveView] service refused:', result.error);
+            setState(T('Failed'), 'failed');
+            setOverlay(result.error || T('The camera service could not start the stream.'));
+            return;
+        }
+
+        if (!pc) return;
+        pc.setRemoteDescription({ type: 'answer', sdp: result.sdp }).catch(function (err) {
+            console.error('[LiveView] setRemoteDescription failed:', err);
+            setState(T('Failed'), 'failed');
+            setOverlay(T('The camera service answered, but the stream could not be set up.'));
+        });
+    });
+
+    // ===== WEIGHT =====
+
+    // Same ScaleWeight feed the dashboard uses. Someone weighing remotely is
+    // relying on the picture to know the truck is on the deck, so the scale's own
+    // motion state has to be in front of them too.
+    connection.on('ScaleWeight', function (data) {
+        var valueEl = document.getElementById('weightValue');
+        var unitEl = document.getElementById('weightUnit');
+        var statusEl = document.getElementById('weightStatus');
+        var scaleEl = document.getElementById('scaleName');
+
+        scaleEl.textContent = data.scaleId ? String(data.scaleId) : '';
+
+        if (data.ok) {
+            valueEl.textContent = Number(data.weight).toLocaleString();
+            valueEl.style.color = data.motion ? '#ffc107' : '#0f0';
+            unitEl.style.color = data.motion ? '#cc9900' : '#0a0';
+
+            var text, color;
+            if (data.status && data.status !== 'Ok' && data.status !== 'Motion') {
+                text = String(data.status).toUpperCase();
+                color = '#0dcaf0';
+            } else if (data.motion) {
+                text = T('MOTION');
+                color = '#ffc107';
+            } else {
+                text = T('STABLE');
+                color = '#0a0';
+            }
+            statusEl.textContent = text;
+            statusEl.style.color = color;
+        } else {
+            valueEl.textContent = '---';
+            valueEl.style.color = '#f00';
+            unitEl.style.color = '#a00';
+            statusEl.textContent = data.status ? String(data.status).toUpperCase() : T('ERROR');
+            statusEl.style.color = '#f00';
+        }
+    });
+
+    // ===== SERVICE COMES AND GOES =====
+
+    connection.on('CameraServiceReady', function () { loadCameras(); });
+    connection.on('CameraServiceDisconnected', function () { loadCameras(); });
+
+    connection.onreconnected(function () { loadCameras(); });
+
+    connection.start().then(function () {
+        loadCameras();
+    }).catch(function (err) {
+        console.error('[LiveView] hub connect failed:', err);
+        setOverlay(T('Lost the connection to the server.'));
+    });
+
+    window.addEventListener('beforeunload', stop);
+</script>
+</body>
+</html>

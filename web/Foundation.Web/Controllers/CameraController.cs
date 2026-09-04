@@ -27,7 +27,26 @@ public class CameraController : Controller
         var setup = _setupCache.Get();
         ViewBag.InboundCameraId = setup.InboundCameraId ?? "";
         ViewBag.OutboundCameraId = setup.OutboundCameraId ?? "";
+        ViewBag.UseLiveView = setup.UseLiveView;
         return View();
+    }
+
+    /// <summary>
+    /// Operator live view, opened as a popout so it can sit on a second monitor
+    /// while the weigh forms stay on the first.
+    ///
+    /// Gated here as well as in the UI. Hiding the button is for the operator's
+    /// benefit; refusing the route is what actually keeps the page shut on a site
+    /// that has not bought or enabled live view, since the URL is guessable and
+    /// this window shows a live feed of the scale.
+    /// </summary>
+    public IActionResult Live()
+    {
+        var setup = _setupCache.Get();
+        if (!setup.UseLiveView)
+            return NotFound();
+
+        return View(setup);
     }
 
     // API to save camera assignments

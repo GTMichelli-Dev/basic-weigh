@@ -296,6 +296,15 @@
 })();
 </script>
 
+<script>
+    // A real window, not a modal: this is meant to live on a second monitor
+    // while the weigh forms stay on the first. Named so repeated clicks focus
+    // the existing window instead of piling up new ones.
+    function openLiveView() {
+        window.open('/Camera/Live', 'foundationLiveView', 'width=1024,height=720,resizable=yes');
+    }
+</script>
+
 <div class="row justify-content-center mb-4">
     <div class="col-md-10">
         <div class="weight-display" id="weightDisplay">
@@ -304,6 +313,17 @@
             <div class="scale-status" id="scaleStatus">&nbsp;</div>
             <button class="zero-btn" onclick="zeroScale(dashScaleId, this)" title="Zero the scale">ZERO</button>
         </div>
+        @* Opens the camera popout for weighing from away from the scale house.
+           Hidden unless the site enabled live view; /Camera/Live refuses the
+           request on its own regardless. *@
+        @if ((bool?)ViewBag.UseLiveView == true)
+        {
+            <div class="text-center mt-2">
+                <button type="button" class="btn btn-outline-primary btn-sm" onclick="openLiveView()">
+                    <i class="fa fa-video"></i> Live View
+                </button>
+            </div>
+        }
         <!-- Multi-scale: every scale at this location, live. Click = select. -->
         <div id="dashScaleGrid" style="display:none;"></div>
     </div>
