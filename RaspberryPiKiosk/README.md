@@ -28,7 +28,7 @@ Pi boots → desktop autostart → kiosk-loop.sh
 Simplest path, and the one to use on a Pi OS Lite image with no git installed:
 
 ```bash
-curl -fsSL -o kiosk.tar.gz https://github.com/GTMichelli-Dev/foundation/releases/latest/download/kiosk-pi.tar.gz
+curl -fsSL -o kiosk.tar.gz [https://github.com/GTMichelli-Dev/foundation/releases/latest/download/kiosk-pi.tar.gz](https://github.com/GTMichelli-Dev/foundation/releases/latest/download/kiosk-pi.tar.gz)
 mkdir -p ~/foundation-kiosk && tar -xzf kiosk.tar.gz -C ~/foundation-kiosk
 ~/foundation-kiosk/install.sh
 sudo reboot
